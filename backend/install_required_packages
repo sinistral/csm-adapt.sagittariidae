@@ -1,0 +1,25 @@
+#!/bin/bash
+
+function install() {
+    local package=${1:?Usage: install PACKAGE}
+    if ! conda install $package ; then
+        if ! pip install -i https://pypi.anaconda.org/pypi/simple $package; then
+            echo "Could not install $package using either conda or pip" 1>&2
+            exit 1
+        fi
+    fi
+}
+
+install flask
+install flask-login
+install flask-openid
+install flask-mail
+install flask-sqlalchemy
+install sqlalchemy-migrate
+install flask-whooshalchemy
+install flask-wtf
+install flask-babel
+install Flask-Script
+install guess_language
+install flipflop
+install coverage
