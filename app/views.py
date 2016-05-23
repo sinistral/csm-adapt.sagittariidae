@@ -1,5 +1,5 @@
 from app import app
-from flask import render_template
+# from flask import render_template
 
 @app.route('/')
 @app.route('/index')
@@ -12,3 +12,4 @@ def index():
         return msg
     with open(ifile) as ifs:
         return ifs.read()
+    # return render_template(ifile)
