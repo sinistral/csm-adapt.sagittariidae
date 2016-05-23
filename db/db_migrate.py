@@ -2,6 +2,8 @@
 # To use this, see
 # http://blog.miguelgrinberg.com/post/the-flask-mega-tutorial-part-iv-database
 
+import sys
+sys.path.append('..')
 import imp
 from migrate.versioning import api
 from app import db
