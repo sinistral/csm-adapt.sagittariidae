@@ -4,7 +4,12 @@ from app import app, models
 
 @app.route('/')
 def root():
-    return "Hello, world!"
+    return 'Hello, world!'
+
+
+@app.route('/projects')
+def projects():
+    return models.get_projects()
 
 
 @app.route('/index')

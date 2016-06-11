@@ -6,13 +6,10 @@ from sqlalchemy.orm.exc import NoResultFound, MultipleResultsFound
 import json
 
 
-def jsonize(model):
-    """JSONize a model."""
-    return json.dumps(
-        dict(kv for kv in iter(model.__dict__.items())
-             if not kv[0].startswith('_')),
-        indent=4
-    )
+def dictify(model):
+    """Return a model as a dictionary"""
+    return dict(kv for kv in iter(model.__dict__.items())
+                if not kv[0].startswith('_'))
 
 
 class Project(db.Model):
@@ -31,13 +28,13 @@ class Project(db.Model):
 
 def get_projects():
     """
-    Returns a newline-separated JSON of all projects.
+    Returns an array of JSON objects, with each element representing a project.
     """
     try:
         projects = Project.query.all()
     except OperationalError:
         return ''
-    return '\n'.join([jsonize(p) for p in projects])
+    return json.dumps([dictify(p) for p in projects])
 
 
 def add_project(name, sample_mask):
