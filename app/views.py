@@ -12,6 +12,11 @@ def projects():
     return models.get_projects()
 
 
+@app.route('/methods')
+def methods():
+    return models.get_methods()
+
+
 @app.route('/index')
 def index():
     ifile = 'layout/index.html'

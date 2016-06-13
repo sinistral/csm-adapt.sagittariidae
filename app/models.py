@@ -12,6 +12,11 @@ def dictify(model):
                 if not kv[0].startswith('_'))
 
 
+def jsonize_models(models):
+    """Return a list of model instances as a JSON array."""
+    return json.dumps([dictify(m) for m in models])
+
+
 class Project(db.Model):
     __tablename__ = 'projects'
     id = Column('project_id', Integer, primary_key=True)
@@ -28,13 +33,13 @@ class Project(db.Model):
 
 def get_projects():
     """
-    Returns an array of JSON objects, with each element representing a project.
+    Returns a JSON array of projects.
     """
     try:
         projects = Project.query.all()
     except OperationalError:
         return ''
-    return json.dumps([dictify(p) for p in projects])
+    return jsonize_models(projects)
 
 
 def add_project(name, sample_mask):
@@ -115,13 +120,13 @@ class Method(db.Model):
 
 def get_methods():
     """
-    Returns a newline-separated JSON of all methods.
+    Returns a JSON array of methods.
     """
     try:
         methods = Method.query.all()
     except OperationalError:
         return ''
-    return '\n'.join([jsonize(m) for m in methods])
+    return jsonize_models(methods)
 
 
 def add_method(name, description):

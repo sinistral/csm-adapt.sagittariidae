@@ -44,7 +44,17 @@ def test_0_projects(ws):
 
 
 def test_1_projects(ws):
-    models.add_project('project3', '###')
+    name = 'project3'
+    mask = '###'
+    models.add_project(name, mask)
     rsp = decode_json_string(ws.get('/projects').data)
     assert len(rsp) == 1
-    assert rsp[0] == {'id': 1, 'name': 'project3', 'sample_mask': '###'}
+    assert rsp[0] == {'id': 1, 'name': name, 'sample_mask': mask}
+
+def test_1_methods(ws):
+    name = 'method0'
+    desc = 'placeholder description'
+    models.add_method(name, desc)
+    rsp = decode_json_string(ws.get('/methods').data)
+    assert len(rsp) == 1
+    assert rsp[0] == {'id':1, 'name':name, 'description':desc}
