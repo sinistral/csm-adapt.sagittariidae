@@ -13,7 +13,8 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.orm.exc        import NoResultFound, MultipleResultsFound
 from urllib                    import quote
 
-from app import app, db
+from app        import app, db
+from exceptions import NotFound
 
 
 BAD_URI_PAT  = re.compile("%.{2}|\/|_")
@@ -195,11 +196,11 @@ def get_samples(project_id):
     """
     Returns a JSON array of the samples in a given project.
     """
-    p = Project.query.filter_by(id=project_id).first()
+    p = Project.query.filter_by(obfuscated_id=project_id).first()
     if p is None:
         msg = 'Project {} was not found.'.format(project_id)
-        raise NoResultFound(msg)
-    return jsonize_models(Sample.query.filter_by(project_id=p.id).all())
+        raise NotFound('Sample', project_id)
+    return jsonize_models(Sample.query.filter_by(_project_id=p.id).all())
 
 
 def add_sample(project_id, name):
