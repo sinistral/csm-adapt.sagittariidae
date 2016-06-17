@@ -1,7 +1,6 @@
 
 from flask import jsonify, request
 from app import app, db, models
-from exceptions import NotFound
 
 import json
 import re
@@ -15,9 +14,14 @@ def get_projects():
     return jsonize(models.get_projects())
 
 
+@app.route('/projects/<project>', methods=['GET'])
+def get_project(project):
+    return jsonize(models.get_project(obfuscated_id=project.split('-')[0]))
+
+
 @app.route('/projects/<project>/samples', methods=['GET'])
 def get_project_samples(project):
-    return jsonize(models.get_samples(project.split('-')[0]))
+    return jsonize(models.get_samples(obfuscated_id=project.split('-')[0]))
 
 
 @app.route('/methods', methods=['GET'])
@@ -37,14 +41,6 @@ def index():
     with open(ifile) as ifs:
         return ifs.read()
     # return render_template(ifile)
-
-# --------------------------------------------- errors and error handlers --- #
-
-@app.errorhandler(NotFound)
-def handle_resource_not_found(error):
-    response = jsonify(error.to_dict())
-    response.status_code = error.status_code
-    return response
 
 # -------------------------------------------------- custom JSON encoding --- #
 
