@@ -187,6 +187,22 @@ def get_samples(**project_filters):
     return Sample.query.filter_by(_project_id=p.id).all()
 
 
+def get_project_sample(project_filters, sample_filters, abort_not_found=True):
+    # Retrieve the project that is supposed to contain the sample, signalling a
+    # 404 if it does not exist.  Although our obfuscated sample IDs are in fact
+    # globally unique, we don't want to leak that fact into the API, since it
+    # isn't something that clients should assume as guaranteed behaviour.
+    # Samples are only valid in the context of a project, and the API should
+    # reflect that, even if we model it differently.
+    p = get_project(**project_filters)
+    sample_filters['_project_id'] = p.id
+    s = Sample.query.filter_by(**sample_filters).one_or_none()
+    if s is None and abort_not_found:
+        abort(404)
+    else:
+        return s
+
+
 def add_sample(project_id, name):
     """
     Adds a new sample.
@@ -256,21 +272,18 @@ class SampleStage(db.Model):
         return self.method.obfuscated_id
 
 
-def get_stages(sample_id=None, method_id=None):
+def get_stages(**sample_filters):
     """
     Returns stages that are part of sample_id, method_id, or both (boolean AND).
     """
-    query = SampleStage.query
-    if sample_id is not None:
-        query = query.filter_by(sample_id=sample_id)
-    if method_id is not None:
-        query = query.filter_by(method_id=method_id)
-    # check that the db exists
-    try:
-        stages = query.all()
-    except OperationalError:
-        return ''
-    return stages
+    s = Sample.query.filter_by(**sample_filters).one_or_none()
+    if s is None:
+        abort(404)
+    # The order of the stages is significant, since they represent a sequence
+    # of events for a sample.  Results should naturally be ordered by the
+    # primary key, but it doesn't hurt to make sure.
+    return SampleStage\
+        .query.filter_by(_sample_id=s.id).order_by(SampleStage.id).all()
 
 
 def add_stage(sample_id, method_id, annotation, alt_id=None):

@@ -4,7 +4,7 @@ import pytest
 import tempfile
 
 from app      import models
-from fixtures import sample, ws
+from fixtures import sample, sample_with_stages, ws
 from utils    import decode_json_string
 
 
@@ -65,3 +65,32 @@ def test_get_sample_without_context(ws, sample):
 def test_sample_project_not_found(ws, sample):
     rsp = ws.get('/projects/00000-project-X/samples')
     assert rsp.status_code == 404
+
+
+def test_sample_not_found(ws, sample):
+    rsp = ws.get('projects/5QMVv/samples/invalid-sample')
+    assert rsp.status_code == 404
+
+
+def test_get_sample(ws, sample_with_stages):
+    rsp = decode_json_string(ws.get('/projects/PqrX9/samples/OQn6Q').data)
+    assert \
+        {'id'      : 'OQn6Q-sample-1',
+         'name'    : 'sample 1',
+         'project' : 'PqrX9-manhattan'} \
+        == rsp
+
+
+def test_get_stages(ws, sample_with_stages):
+    rsp = decode_json_string(ws.get('/projects/PqrX9/samples/OQn6Q/stages').data)
+    assert [{'id'         : 'Drn1Q-1',
+             'method'     : 'XZOQ0-x-ray-tomography',
+             'sample'     : 'OQn6Q-sample-1',
+             'alt-id'     : None,
+             'annotation' : 'Annotation 0'},
+            {'id'         : 'bQ8bm-2',
+             'method'     : 'XZOQ0-x-ray-tomography',
+             'sample'     : 'OQn6Q-sample-1',
+             'alt-id'     : None,
+             'annotation' : 'Annotation 1'}] \
+        == rsp
