@@ -3,25 +3,22 @@ import os
 import pytest
 import tempfile
 
-import app
-
 from app      import models
 from fixtures import sample, ws
 from utils    import decode_json_string
 
 
-def test_0_projects(ws):
+def test_no_projects(ws):
     rsp = ws.get('/projects')
-    assert '[]' == rsp.data
+    assert [] == decode_json_string(rsp.data)
 
 
-def test_1_projects(ws):
-    name = 'Project 3'
-    mask = '###'
-    models.add_project(name, mask)
+def test_1_projects(ws, sample):
     rsp = decode_json_string(ws.get('/projects').data)
-    assert len(rsp) == 1
-    assert {'id':'PqrX9-project-3', 'name': name, 'sample-mask': mask} == rsp[0]
+    assert [{'id':'PqrX9-manhattan',
+             'name': 'Manhattan',
+             'sample-mask': 'man-###'}] \
+        == rsp
 
 
 def test_1_methods(ws):
@@ -32,17 +29,20 @@ def test_1_methods(ws):
     assert [{'id':'XZOQ0-method-1', 'name':name, 'description':desc}] \
         == rsp
 
+
 def test_get_sample_with_context(ws, sample):
     rsp = decode_json_string(ws.get('/projects/PqrX9-project-0/samples').data)
-    assert [{'id'   : 'OQn6Q-sample-1',
-             'name' : 'sample 1'}] \
+    assert [{'id'      : 'OQn6Q-sample-1',
+             'name'    : 'sample 1',
+             'project' : 'PqrX9-manhattan'}] \
         == rsp
 
 
 def test_get_sample_without_context(ws, sample):
     rsp = decode_json_string(ws.get('/projects/PqrX9/samples').data)
-    assert [{'id'   : 'OQn6Q-sample-1',
-             'name' : 'sample 1'}] \
+    assert [{'id'      : 'OQn6Q-sample-1',
+             'name'    : 'sample 1',
+             'project' : 'PqrX9-manhattan'}] \
         == rsp
 
 
