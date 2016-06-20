@@ -13,7 +13,10 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.orm.exc        import NoResultFound, MultipleResultsFound
 from urllib                    import quote
 
+import http
+
 from app import app, db
+
 
 
 BAD_URI_PAT  = re.compile("%.{2}|\/|_")
@@ -124,7 +127,7 @@ def get_resource(q, abort_not_found=True):
     # which won't complain if multiple results are returned.
 
     if r is None and abort_not_found:
-        abort(404)
+        abort(http.HTTP_404_NOT_FOUND)
     else:
         return r
 
@@ -292,38 +295,78 @@ class SampleStage(db.Model):
         return self.method.obfuscated_id
 
 
-def get_stages(**sample_filters):
+def _sample_stage_token_hashid():
+    return hashids.Hashids(salt='SampleStageToken', min_length=5)
+
+
+def get_sample_stages(sample_id):
     """
-    Returns stages that are part of sample_id, method_id, or both (boolean AND).
+    Returns stages for the designated sample.
     """
-    s = Sample.query.filter_by(**sample_filters).one_or_none()
-    if s is None:
-        abort(404)
+    s = get_resource(Sample.query.filter_by(obfuscated_id=sample_id))
     # The order of the stages is significant, since they represent a sequence
     # of events for a sample.  Results should naturally be ordered by the
     # primary key, but it doesn't hurt to make sure.
-    return SampleStage\
-        .query.filter_by(_sample_id=s.id).order_by(SampleStage.id).all()
+    stages = SampleStage\
+             .query\
+             .filter_by(_sample_id=s.id)\
+             .order_by(SampleStage.id)\
+             .all()
+    hashid = _sample_stage_token_hashid()
+    if len(stages) == 0:
+        token = hashid.encode(0)
+    else:
+        token = hashid.encode(stages[-1].id)
+    return stages, token
 
 
-def add_stage(sample_id, method_id, annotation, alt_id=None):
-    """Adds a new sample stage."""
-    try:
-        _ = SampleStage.query.first()
-    except OperationalError:
-        db.create_all()
-    s = Sample.query.filter_by(obfuscated_id=sample_id).first()
-    if s is None:
-        msg = 'Sample ID {} was not found.'.format(sample_id)
-        raise NoResultFound(msg)
-    m = Method.query.filter_by(obfuscated_id=method_id).first()
-    if m is None:
-        msg = 'Method ID {} was not found.'.format(method_id)
-        raise NoResultFound(msg)
-    ss = SampleStage(
-        annotation=annotation, sample=s, method=m, alt_id=alt_id)
-    with_transaction(db.session, lambda session: session.add(ss))
-    return SampleStage.query.filter_by(id=ss.id).one()
+def get_sample_stage(sample_id, stage_id):
+    """
+    Returns a particular stage for a particular sample.
+    """
+    s = get_resource(Sample.query.filter_by(obfuscated_id=sample_id))
+    return get_resource(SampleStage.query.filter_by(_sample_id=s.id))
+
+
+def add_sample_stage(sample_id, method_id, annotation, token, alt_id=None):
+    """
+    Adds a new sample stage.  Clients are required to echo the token returned
+    by `get_sample_stages()` in order to make requests idempotent and avoid
+    adding spurious entries to the DB because of retries, etc.
+    """
+    s = get_resource(Sample.query.filter_by(obfuscated_id=sample_id))
+    m = get_resource(Method.query.filter_by(obfuscated_id=method_id))
+    i = _sample_stage_token_hashid().decode(token)[0]
+
+    # Make sure that we have a transaction open.  We need to retrieve the list
+    # of stages and insert the new stage in a single transaction for the insert
+    # token to be valid.  Without this it is possible for accidental duplicates
+    # to be inserted because of race conditions or timeouts.
+    db.session.begin(subtransactions=True)
+
+    last_stage = SampleStage\
+                 .query\
+                 .filter_by(_sample_id=s.id)\
+                 .order_by(SampleStage.id.desc()).first()
+    if last_stage is None:
+        last_stage_id = 0
+    else:
+        last_stage_id = last_stage.id
+
+    if last_stage_id != i:
+        abort(409)
+    else:
+        ss = SampleStage(annotation=annotation,
+                         sample=s,
+                         method=m,
+                         alt_id=alt_id)
+        try:
+            with_transaction(db.session, lambda session: session.add(ss))
+            db.session.commit()
+        except:
+            db.session.rollback()
+            raise
+        return SampleStage.query.filter_by(id=ss.id).one()
 
 
 class FileStatus(object):

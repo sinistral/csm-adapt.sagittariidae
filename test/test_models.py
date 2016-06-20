@@ -1,11 +1,11 @@
 
 import os
 import pytest
-import tempfile
+import werkzeug
 
 import app.models as models
 
-from fixtures   import ws
+from fixtures import sample, sample_with_stages, ws
 
 
 def test_add_project(ws):
@@ -39,8 +39,9 @@ def test_add_sample_stage(ws):
     models.add_project(name='Manhattan', sample_mask='man-###')
     models.add_sample(project_id='PqrX9', name='sample 1')
     models.add_method(name='X-ray tomography', description='Placeholder description.')
-    m = models.add_stage(
-        sample_id='OQn6Q', method_id='XZOQ0', annotation='Annotation')
+    t = models._sample_stage_token_hashid().encode(0)
+    m = models.add_sample_stage(
+        sample_id='OQn6Q', method_id='XZOQ0', token=t, annotation='Annotation')
     assert 1 == m.id
     assert 'Drn1Q' == m.obfuscated_id
     assert None == m.alt_id
@@ -49,3 +50,50 @@ def test_add_sample_stage(ws):
     assert 'OQn6Q' == m.sample_id
     assert 1 == m._method_id
     assert 'XZOQ0' == m.method_id
+
+
+def test_get_no_sample_stages(sample):
+    s = sample['sample']
+    (stages, token) = models.get_sample_stages(s.obfuscated_id)
+    assert 0 == len(stages)
+    assert models._sample_stage_token_hashid().encode(0) == token
+
+
+def test_add_new_stage(sample_with_stages):
+    s = sample_with_stages['sample']
+    m = sample_with_stages['method']
+    h = models._sample_stage_token_hashid()
+
+    # Pre-validate that we have the expected number of stages to start with.
+    (stages, token) = models.get_sample_stages(s.obfuscated_id)
+    assert 2 == len(stages)
+    assert h.encode(2) == token
+
+    # Now add the new stage, using the correct ID.
+    models.add_sample_stage(s.obfuscated_id, m.obfuscated_id, None, token)
+
+    # Validate that the record has been added to the DB.
+    (stages, token) = models.get_sample_stages(s.obfuscated_id)
+    assert 2+1 == len(stages)
+    assert h.encode(2+1) == token
+
+
+def test_add_stage_too_far_ahead(sample_with_stages):
+    s = sample_with_stages['sample']
+    m = sample_with_stages['method']
+    h = models._sample_stage_token_hashid()
+
+    # Pre-validate that we have the expected number of stages to start with.
+    (stages, token) = models.get_sample_stages(s.obfuscated_id)
+    assert 2 == len(stages)
+    assert h.encode(2) == token
+
+    # Now add the new stage, using the existing ID and incorrect token
+    t = h.encode(999)
+    with pytest.raises(werkzeug.exceptions.Conflict) as conflict:
+        models.add_sample_stage(s.obfuscated_id, m.obfuscated_id, None, t)
+
+    # Validate that NO record has been added to the DB.
+    (stages, token) = models.get_sample_stages(s.obfuscated_id)
+    assert 2 == len(stages)
+    assert h.encode(2) == token

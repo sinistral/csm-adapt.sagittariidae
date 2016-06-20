@@ -1,9 +1,7 @@
 
-import os
-import pytest
-import tempfile
+import json
 
-from app      import models
+from app      import models, http
 from fixtures import sample, sample_with_stages, ws
 from utils    import decode_json_string
 
@@ -64,35 +62,50 @@ def test_get_sample_without_context(ws, sample):
 
 def test_sample_project_not_found(ws, sample):
     rsp = ws.get('/projects/00000-project-X/samples')
-    assert rsp.status_code == 404
+    assert http.HTTP_404_NOT_FOUND == rsp.status_code
 
 
 def test_sample_not_found(ws, sample):
     rsp = ws.get('projects/5QMVv/samples/invalid-sample')
-    assert rsp.status_code == 404
+    assert http.HTTP_404_NOT_FOUND == rsp.status_code
+
+
+def test_add_sample_stage(ws, sample):
+    token = models._sample_stage_token_hashid().encode(0)
+    rsp = ws.put('/projects/PqrX9/samples/OQn6Q/stages/' + token,
+                 data=json.dumps(
+                     dict(method='XZOQ0', annotation='Stage annation')),
+                 content_type='application/json')
+    assert http.HTTP_201_CREATED == rsp.status_code
+    assert {'id'        : 'Drn1Q-1',
+            'sample'    : 'OQn6Q-sample-1',
+            'alt-id'    : None,
+            'method'    : 'XZOQ0-x-ray-tomography',
+            'annotation': 'Stage annation'} \
+            == decode_json_string(rsp.data)
 
 
 def test_get_sample(ws, sample_with_stages):
     rsp = decode_json_string(ws.get('/projects/PqrX9/samples/OQn6Q').data)
-    assert \
-        {'id'      : 'OQn6Q-sample-1',
-         'name'    : 'sample 1',
-         'project' : 'PqrX9-manhattan'} \
-        == rsp
+    assert {'id'      : 'OQn6Q-sample-1',
+            'name'    : 'sample 1',
+            'project' : 'PqrX9-manhattan'} \
+            == rsp
 
 
 def test_get_stages(ws, sample_with_stages):
     rsp = decode_json_string(ws.get('/projects/PqrX9/samples/OQn6Q/stages').data)
-    assert [{'id'         : 'Drn1Q-1',
-             'method'     : 'XZOQ0-x-ray-tomography',
-             'sample'     : 'OQn6Q-sample-1',
-             'alt-id'     : None,
-             'annotation' : 'Annotation 0'},
-            {'id'         : 'bQ8bm-2',
-             'method'     : 'XZOQ0-x-ray-tomography',
-             'sample'     : 'OQn6Q-sample-1',
-             'alt-id'     : None,
-             'annotation' : 'Annotation 1'}] \
+    assert {'token'   : 'kyDbw',
+            'stages'  : [{'id'         : 'Drn1Q-1',
+                          'method'     : 'XZOQ0-x-ray-tomography',
+                          'sample'     : 'OQn6Q-sample-1',
+                          'alt-id'     : None,
+                          'annotation' : 'Annotation 0'},
+                         {'id'         : 'bQ8bm-2',
+                          'method'     : 'XZOQ0-x-ray-tomography',
+                          'sample'     : 'OQn6Q-sample-1',
+                          'alt-id'     : None,
+                          'annotation' : 'Annotation 1'}]} \
         == rsp
 
 
