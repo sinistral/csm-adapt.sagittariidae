@@ -5,6 +5,7 @@ import time
 from flask            import Flask
 from flask_sqlalchemy import SQLAlchemy
 
+
 app = Flask(__name__)
 
 app.config.from_object('config')
@@ -41,5 +42,8 @@ logger.info('Sagittariidae startup')
 
 # Init the DB and load our models so that they can be processed by SQLAlchemy.
 db = SQLAlchemy(app)
-
 import models, views
+
+if app.debug:
+    from flask_cors import CORS
+    CORS(app, origins='http://localhost:3000')
