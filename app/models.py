@@ -97,6 +97,38 @@ class ResourceMetaClass(type(db.Model)):
             metacls, clsname, (Representable,) + parents, attrs)
 
 
+def get_resource(q, abort_not_found=True):
+    """
+    Retrieve a single resource using the model using a Flask-SQLAlchemy query.
+    A `MultipleResultsFound` error will be raised if more than one result is
+    returned by the query. In most cases it is sufficient to allow this to
+    bubble up and be captured as a `500` ServerInternalError as - given a
+    rigidly-defined API that doesn't allow the client to specify query
+    parameters directly - it is more likely that the query has been incorrectly
+    constructed from the request parameters than it is that the user has
+    constructed a bad query.
+    """
+    r = q.one_or_none()
+    # Note the use of `one_or_none` and not `first_or_none`; the latter won't
+    # complain if multiple resources are returned.  In almost all cases we
+
+    # Retrieve the resource and make sure that we're getting exactly one.
+    # Because we're allowing an arbitrary filter, it's possible that a buggy
+    # call could result in multiple resources being returned, which is almost
+    # always the wrong thing to do when *a* resource is sought.  It's worth
+    # being paranoid about this because simply returning the first of many
+    # resources could result in mutating changes being applied to the wrong
+    # resource.
+    #
+    # Note, therefore, that we're NOT using Flask-SQLAlchemy's `first_or_404`,
+    # which won't complain if multiple results are returned.
+
+    if r is None and abort_not_found:
+        abort(404)
+    else:
+        return r
+
+
 class Project(db.Model):
     __metaclass__ = ResourceMetaClass
     __tablename__ = 'project'
@@ -122,19 +154,6 @@ def get_projects():
     return projects
 
 
-def add_project(name, sample_mask):
-    """
-    Adds a new project.
-    """
-    try:
-        _ = Project.query.first()
-    except OperationalError:
-        db.create_all()
-    p = Project(name=name, sample_mask=sample_mask)
-    with_transaction(db.session, lambda session: session.add(p))
-    return Project.query.filter_by(id=p.id).one()
-
-
 def get_project(abort_not_found=True, **project_filters):
     """
     Retrieve summary information (as a dict) for a single project. The fields
@@ -146,20 +165,21 @@ def get_project(abort_not_found=True, **project_filters):
     If `abort_not_found` is `True`, processing will be short-circuited with a
     404 if the project can not be found.
     """
-    # Retrieve the project and make sure that we're getting exactly one.
-    # Because we're allowing arbitrary filter criteria, it's possible that a
-    # buggy call could result in multiple projects being returned, which is an
-    # invalid use of this function.  It's worth being paranoid about this
-    # because simply returning the first of many projects could result in
-    # mutating changes being applied to the wrong project.
-    #
-    # Note, therefore, that we're NOT using Flask-SQLAlchemy's `first_or_404`,
-    # which won't complain if multiple results are returned.
-    p = Project.query.filter_by(**project_filters).one_or_none()
-    if p is None and abort_not_found:
-        abort(404)
-    else:
-        return p
+    return get_resource(
+        Project.query.filter_by(**project_filters), abort_not_found)
+
+
+def add_project(name, sample_mask):
+    """
+    Adds a new project.
+    """
+    try:
+        _ = Project.query.first()
+    except OperationalError:
+        db.create_all()
+    p = Project(name=name, sample_mask=sample_mask)
+    with_transaction(db.session, lambda session: session.add(p))
+    return Project.query.filter_by(id=p.id).one()
 
 
 class Sample(db.Model):
@@ -196,11 +216,7 @@ def get_project_sample(project_filters, sample_filters, abort_not_found=True):
     # reflect that, even if we model it differently.
     p = get_project(**project_filters)
     sample_filters['_project_id'] = p.id
-    s = Sample.query.filter_by(**sample_filters).one_or_none()
-    if s is None and abort_not_found:
-        abort(404)
-    else:
-        return s
+    return get_resource(Sample.query.filter_by(**sample_filters))
 
 
 def add_sample(project_id, name):
@@ -236,6 +252,10 @@ def get_methods():
     except OperationalError:
         return ''
     return methods
+
+
+def get_method(abort_not_found=True, **filters):
+    return get_resource(Method.query.filter_by(**filters), abort_not_found)
 
 
 def add_method(name, description):
