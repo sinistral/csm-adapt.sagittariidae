@@ -21,7 +21,26 @@ def get_project(project):
 
 @app.route('/projects/<project>/samples', methods=['GET'])
 def get_project_samples(project):
-    return jsonize(models.get_samples(obfuscated_id=as_id(project)))
+    # Allow clients to search for a sample rather than having to retrieve all
+    # of the samples for a project (even if the latter is arguably the more
+    # RESTful approach).  This enables a URL of the form:
+    #
+    #   http://.../projects/qwErt/samples?name=P001-B009-...
+    #
+    # In the absence of the query parameter we simply return the entire
+    # collection.
+    # FIXME: This should support pagination!
+    sample_name=request.args.get('name')
+    if sample_name is not None:
+        return jsonize(
+            models.get_project_sample(
+                {'obfuscated_id': as_id(project)},
+                {'name': sample_name},
+                False))  # Do not signal a 404 if sample could not be found.
+    else:
+        return jsonize(
+            models.get_samples(
+                obfuscated_id=as_id(project)))
 
 
 @app.route('/projects/<project>/samples/<sample>', methods=['GET'])
