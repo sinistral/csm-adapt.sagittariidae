@@ -61,6 +61,11 @@ def get_project_sample_stages(project, sample):
 def get_methods():
     return jsonize(models.get_methods())
 
+
+@app.route('/methods/<method>', methods=['GET'])
+def get_method(method):
+    return jsonize(models.get_method(obfuscated_id=as_id(method)))
+
 # --------------------------------------------------------- static routes --- #
 
 @app.route('/index')

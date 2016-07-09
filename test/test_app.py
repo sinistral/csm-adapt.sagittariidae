@@ -94,3 +94,16 @@ def test_get_stages(ws, sample_with_stages):
              'alt-id'     : None,
              'annotation' : 'Annotation 1'}] \
         == rsp
+
+
+def test_get_method(ws, sample_with_stages):
+    rsp = decode_json_string(ws.get('/methods/XZOQ0-x-ray-tomography').data)
+    assert {'id'          : 'XZOQ0-x-ray-tomography',
+            'name'        : 'X-ray tomography',
+            'description' : 'Placeholder description.'} \
+            == rsp
+
+
+def test_method_not_found(ws, sample_with_stages):
+    rsp = ws.get('/methods/invalid-method')
+    assert 404 == rsp.status_code
