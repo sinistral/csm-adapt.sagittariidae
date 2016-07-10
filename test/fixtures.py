@@ -42,3 +42,15 @@ def sample(ws):
 @pytest.fixture(scope='module')
 def json_encoder(request):
     return views.DBModelJSONEncoder()
+
+
+@pytest.fixture(scope='function')
+def sample_with_stages(sample):
+    sample.update({'method' : models.add_method('Smoke test', 'Placeholder'),
+                   'stages' : [models.add_stage(sample_id='OQn6Q',
+                                                method_id='XZOQ0',
+                                                annotation='Annotation 0'),
+                               models.add_stage(sample_id='OQn6Q',
+                                                method_id='XZOQ0',
+                                                annotation='Annotation 1')]})
+    return sample

@@ -3,7 +3,7 @@ import pytest
 
 from sqlalchemy import Column, Integer
 
-from app.models import Project, Sample
+from app.models import Method, Project, Sample, SampleStage
 from app.models import db
 from app.views  import jsonize
 from utils      import decode_json_string
@@ -35,5 +35,4 @@ def test_uri_name(json_encoder):
             'foo   bar' : 'foo-bar',
             'foo ~ bar' : 'foo-bar'}
     for kv in iter(spec.items()):
-        assert kv[1] == json_encoder._uri_name(kv[0])
-
+        assert kv[1] == json_encoder._uri_name('FoOby', kv[0]).split('-', 1)[1]
