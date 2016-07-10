@@ -5,6 +5,8 @@ import tempfile
 
 import app
 import app.models as models
+import app.views as views
+
 
 @pytest.fixture(scope='function')
 def ws(request):
@@ -28,6 +30,15 @@ def ws(request):
 
 @pytest.fixture(scope='function')
 def sample(ws):
-    models.add_project(name='Manhattan', sample_mask='man-###')
-    models.add_sample(project_id='PqrX9', name='sample 1')
-    models.add_method(name='X-ray tomography', description='Placeholder description.')
+    project = models.add_project(name='Manhattan', sample_mask='man-###')
+    sample = models.add_sample(project_id='PqrX9', name='sample 1')
+    method = models.add_method(name='X-ray tomography', description='Placeholder description.')
+    return {'app'     : ws,
+            'project' : project,
+            'sample'  : sample,
+            'method'  : method}
+
+
+@pytest.fixture(scope='module')
+def json_encoder(request):
+    return views.DBModelJSONEncoder()

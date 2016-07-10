@@ -3,85 +3,49 @@ import os
 import pytest
 import tempfile
 
-from sqlalchemy import Column, Integer
-
-import app
 import app.models as models
 
-from app.models import db
 from fixtures   import ws
-from utils      import decode_json_string
-
-
-def test_dictify():
-    p = models.Project(id=1, obfuscated_id='5QMVv', name='project', sample_mask='###')
-    assert {'id'          : '5QMVv-project',
-            'name'        : 'project',
-            'sample-mask' : '###'} \
-        == models.dictify(p)
-
-
-def test_dictify_no_name():
-    class NoName(db.Model):
-        __metaclass__ = models.ResourceMetaClass
-        __tablename__ = 'no-name'
-    assert {'id':'5QMVv'} \
-        == models.dictify(NoName(id=1, obfuscated_id='5QMVv'))
-
-
-def test_uri_name():
-    spec = {'foobar'    : 'foobar',
-            'fooBar'    : 'foobar',
-            'foo bar'   : 'foo-bar',
-            'f o o'     : 'f-o-o',
-            'foo   bar' : 'foo-bar',
-            'foo ~ bar' : 'foo-bar'}
-    for kv in iter(spec.items()):
-        assert kv[1] == models.uri_name(kv[0])
 
 
 def test_add_project(ws):
-    assert {'id'          : 'PqrX9-manhattan',
-            'name'        : 'Manhattan',
-            'sample-mask' : 'man-###'} \
-        == decode_json_string(
-            models.add_project('Manhattan', 'man-###'))
+    m = models.add_project('Manhattan', 'man-###')
+    assert 1 == m.id
+    assert 'PqrX9' == m.obfuscated_id
+    assert 'Manhattan' == m.name
+    assert 'man-###' == m.sample_mask
 
 
 def test_add_method(ws):
-    assert {'id'          : 'XZOQ0-x-ray-tomography',
-            'name'        : 'X-ray tomography',
-            'description' : 'Placeholder description.'} \
-        == decode_json_string(
-            models.add_method(name='X-ray tomography',
-                              description='Placeholder description.'))
+    m = models.add_method(name='X-ray tomography',
+                          description='Placeholder description.')
+    assert 1 == m.id
+    assert 'XZOQ0' == m.obfuscated_id
+    assert 'X-ray tomography' == m.name
+    assert 'Placeholder description.' == m.description
 
 
 def test_add_sample(ws):
     models.add_project(name='Manhattan', sample_mask='man-###')
-    assert {'id'   : 'OQn6Q-sample-1',
-            'name' : 'sample 1'} \
-        == decode_json_string(
-            models.add_sample(project_id='PqrX9', name='sample 1'))
-    assert 1 == \
-        models.db.engine.execute(
-            'select project_id from sample where id=1').fetchone()[0]
+    m = models.add_sample(project_id='PqrX9', name='sample 1')
+    assert 1 == m.id
+    assert 'OQn6Q' == m.obfuscated_id
+    assert 'sample 1' == m.name
+    assert 1 == m._project_id
+    assert 'PqrX9' == m.project_id
 
 
 def test_add_sample_stage(ws):
     models.add_project(name='Manhattan', sample_mask='man-###')
     models.add_sample(project_id='PqrX9', name='sample 1')
     models.add_method(name='X-ray tomography', description='Placeholder description.')
-    assert {'id'         : 'Drn1Q',
-            'annotation' : 'Annotation',
-            'alt-id'     : None} \
-        == decode_json_string(
-            models.add_stage(sample_id='OQn6Q',
-                             method_id='XZOQ0',
-                             annotation='Annotation'))
-    assert 1 == \
-        models.db.engine.execute(
-            'select sample_id from sample_stage where id=1').fetchone()[0]
-    assert 1 == \
-        models.db.engine.execute(
-            'select method_id from sample_stage where id=1').fetchone()[0]
+    m = models.add_stage(
+        sample_id='OQn6Q', method_id='XZOQ0', annotation='Annotation')
+    assert 1 == m.id
+    assert 'Drn1Q' == m.obfuscated_id
+    assert None == m.alt_id
+    assert 'Annotation' == m.annotation
+    assert 1 == m._sample_id
+    assert 'OQn6Q' == m.sample_id
+    assert 1 == m._method_id
+    assert 'XZOQ0' == m.method_id

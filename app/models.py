@@ -2,7 +2,6 @@
 import hashids
 import json
 import re
-import sqlalchemy.types as types
 
 from sqlalchemy                import ForeignKey, Column, String, Text, Integer
 from sqlalchemy                import event
@@ -44,47 +43,6 @@ def with_transaction(session, f):
     except Exception, e:
         session.rollback()
         raise e
-
-
-def uri_name(name):
-    """
-    Convert the name of a resource (like a project or sample) into a
-    URI-friendly form.  This function has strong opinions about what a "good"
-    URI ID is, and will complain if the ID cannot be rendered in an acceptable
-    form.  In particular, it should not contain any characters that need to be
-    escaped; cf. `urllib.quote()`.
-    """
-    # URI-escape special characters
-    new_name = quote(name.lower().replace(" ", "-"))
-    # Convert escapes into underscores; i.e. foo%20bar -> foo-bar
-    new_name = re.sub(BAD_URI_PAT, '-', new_name)
-    # Collapse multiple consecutive hyphens; i.e. foo---bar -> foo-bar
-    new_name = re.sub(COLLAPSE_PAT, '-', new_name)
-    # And return our pretty new identifier
-    return new_name
-
-
-def dictify(model):
-    """
-    Return a model as a dictionary. 'Private' attributes are removed and
-    underscores are replaced with more hyphens in attribute names, making for
-    more aesthetically pleasing HTTP data maps.
-    """
-    assert hasattr(model, 'id')
-    assert model.id is not None, 'Model\'s ID may not be None'
-    assert hasattr(model, 'obfuscated_id')
-    assert model.obfuscated_id is not None, 'Model\'s obfuscated ID may not be None'
-
-    def tr(kv):
-        return (kv[0].replace('_', '-'), kv[1])
-    d = dict(tr(kv) for kv in iter(model.__dict__.items())
-             if not kv[0].startswith('_'))
-    if d.has_key('name'):
-        d['id'] = '-'.join([d['obfuscated-id'], uri_name(d['name'])])
-    else:
-        d['id'] = d['obfuscated-id']
-    del d['obfuscated-id']
-    return d
 
 
 def jsonize_models(models):
@@ -153,13 +111,15 @@ class Project(db.Model):
 
 def get_projects():
     """
-    Returns a JSON array of projects.
+    Returns a list of dicts, where each contains summary information about a
+    project.
     """
     try:
         projects = Project.query.all()
-    except OperationalError:
-        return ''
-    return jsonize_models(projects)
+    except Exception, e:
+        log.error('Error retrieving projects', exc_info=e)
+        raise e
+    return projects
 
 
 def add_project(name, sample_mask):
@@ -172,7 +132,7 @@ def add_project(name, sample_mask):
         db.create_all()
     p = Project(name=name, sample_mask=sample_mask)
     with_transaction(db.session, lambda session: session.add(p))
-    return jsonize_model(Project.query.filter_by(id=p.id).one())
+    return Project.query.filter_by(id=p.id).one()
 
 
 class Sample(db.Model):
@@ -194,13 +154,12 @@ class Sample(db.Model):
 
 def get_samples(project_id):
     """
-    Returns a JSON array of the samples in a given project.
+    Returns a list of dicts where each represents summary data of a sample.
     """
     p = Project.query.filter_by(obfuscated_id=project_id).first()
     if p is None:
-        msg = 'Project {} was not found.'.format(project_id)
-        raise NotFound('Sample', project_id)
-    return jsonize_models(Sample.query.filter_by(_project_id=p.id).all())
+        raise NotFound('Project', project_id)
+    return Sample.query.filter_by(_project_id=p.id).all()
 
 
 def add_sample(project_id, name):
@@ -213,7 +172,7 @@ def add_sample(project_id, name):
         raise NoResultFound(msg)
     s = Sample(name=name, project=p)
     with_transaction(db.session, lambda session: session.add(s))
-    return jsonize_model(Sample.query.filter_by(id=s.id).one())
+    return Sample.query.filter_by(id=s.id).one()
 
 
 class Method(db.Model):
@@ -231,13 +190,14 @@ class Method(db.Model):
 
 def get_methods():
     """
-    Returns a JSON array of methods.
+    Returns a list of dicts, where each contains summary information about a
+    method.
     """
     try:
         methods = Method.query.all()
     except OperationalError:
         return ''
-    return jsonize_models(methods)
+    return methods
 
 
 def add_method(name, description):
@@ -248,7 +208,7 @@ def add_method(name, description):
         db.create_all()
     m = Method(name=name, description=description)
     with_transaction(db.session, lambda session: session.add(m))
-    return jsonize_model(Method.query.filter_by(id=m.id).one())
+    return Method.query.filter_by(id=m.id).one()
 
 
 class SampleStage(db.Model):
@@ -288,7 +248,7 @@ def get_stages(sample_id=None, method_id=None):
         stages = query.all()
     except OperationalError:
         return ''
-    return '\n'.join([jsonize(s) for s in stages])
+    return stages
 
 
 def add_stage(sample_id, method_id, annotation, alt_id=None):
@@ -308,7 +268,7 @@ def add_stage(sample_id, method_id, annotation, alt_id=None):
     ss = SampleStage(
         annotation=annotation, sample=s, method=m, alt_id=alt_id)
     with_transaction(db.session, lambda session: session.add(ss))
-    return jsonize_model(SampleStage.query.filter_by(id=ss.id).one())
+    return SampleStage.query.filter_by(id=ss.id).one()
 
 
 class FileStatus(object):
@@ -382,7 +342,8 @@ def create_upload_filename(*args, **kwds):
 
 def get_files(sample_stage_id=None):
     """
-    Returns a newline-separated JSONized files that belong to a sample stage.
+    Returns a list of dicts where each represents a file that belongs to a
+    sample stage.
     """
     query = SampleStageFile.query
     if sample_stage_id is not None:
@@ -391,7 +352,7 @@ def get_files(sample_stage_id=None):
         files = query.all()
     except OperationalError:
         return ''
-    return '\n'.join([jsonize(f) for f in files])
+    return files
 
 
 def add_file(sample_stage_id):
@@ -408,4 +369,4 @@ def add_file(sample_stage_id):
         raise NoResultFound(msg)
     ssf = SampleStageFile(sample_stage=ss)
     with_transaction(db.session, lambda session: session.add(ssf))
-    return jsonize_model(SampleStageFile.query.filter_by(id=ssf.id))
+    return SampleStageFile.query.filter_by(id=ssf.id)
