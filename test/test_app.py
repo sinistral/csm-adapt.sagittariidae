@@ -21,7 +21,23 @@ def test_1_projects(ws, sample):
         == rsp
 
 
-def test_1_methods(ws):
+def test_get_project_with_context(ws, sample):
+    rsp = decode_json_string(ws.get('/projects/PqrX9-manhattan').data)
+    assert {'id':'PqrX9-manhattan',
+             'name': 'Manhattan',
+             'sample-mask': 'man-###'} \
+        == rsp
+
+
+def test_get_project_without_context(ws, sample):
+    rsp = decode_json_string(ws.get('/projects/PqrX9').data)
+    assert {'id':'PqrX9-manhattan',
+             'name': 'Manhattan',
+             'sample-mask': 'man-###'} \
+        == rsp
+
+
+def test_get_methods(ws):
     name = 'Method 1'
     desc = 'Placeholder description.'
     models.add_method(name, desc)

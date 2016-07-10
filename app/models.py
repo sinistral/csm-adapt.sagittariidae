@@ -3,6 +3,7 @@ import hashids
 import json
 import re
 
+from flask                     import abort
 from sqlalchemy                import ForeignKey, Column, String, Text, Integer
 from sqlalchemy                import event
 from sqlalchemy.exc            import OperationalError, IntegrityError
@@ -12,8 +13,7 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.orm.exc        import NoResultFound, MultipleResultsFound
 from urllib                    import quote
 
-from app        import app, db
-from exceptions import NotFound
+from app import app, db
 
 
 BAD_URI_PAT  = re.compile("%.{2}|\/|_")
@@ -135,6 +135,33 @@ def add_project(name, sample_mask):
     return Project.query.filter_by(id=p.id).one()
 
 
+def get_project(abort_not_found=True, **project_filters):
+    """
+    Retrieve summary information (as a dict) for a single project. The fields
+    by which the project is to be identified must be specified as
+    `project_filters`,
+    ```
+    get_project(id="5QMVv")
+    ```
+    If `abort_not_found` is `True`, processing will be short-circuited with a
+    404 if the project can not be found.
+    """
+    # Retrieve the project and make sure that we're getting exactly one.
+    # Because we're allowing arbitrary filter criteria, it's possible that a
+    # buggy call could result in multiple projects being returned, which is an
+    # invalid use of this function.  It's worth being paranoid about this
+    # because simply returning the first of many projects could result in
+    # mutating changes being applied to the wrong project.
+    #
+    # Note, therefore, that we're NOT using Flask-SQLAlchemy's `first_or_404`,
+    # which won't complain if multiple results are returned.
+    p = Project.query.filter_by(**project_filters).one_or_none()
+    if p is None and abort_not_found:
+        abort(404)
+    else:
+        return p
+
+
 class Sample(db.Model):
     __metaclass__ = ResourceMetaClass
     __tablename__ = 'sample'
@@ -152,13 +179,11 @@ class Sample(db.Model):
         return self.project.obfuscated_id
 
 
-def get_samples(project_id):
+def get_samples(**project_filters):
     """
     Returns a list of dicts where each represents summary data of a sample.
     """
-    p = Project.query.filter_by(obfuscated_id=project_id).first()
-    if p is None:
-        raise NotFound('Project', project_id)
+    p = get_project(**project_filters)
     return Sample.query.filter_by(_project_id=p.id).all()
 
 
@@ -166,10 +191,7 @@ def add_sample(project_id, name):
     """
     Adds a new sample.
     """
-    p = Project.query.filter_by(obfuscated_id=project_id).first()
-    if p is None:
-        msg = 'Project "%s" was not found.' % project_id
-        raise NoResultFound(msg)
+    p = get_project(obfuscated_id=project_id)
     s = Sample(name=name, project=p)
     with_transaction(db.session, lambda session: session.add(s))
     return Sample.query.filter_by(id=s.id).one()
