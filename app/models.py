@@ -1,15 +1,90 @@
-from app import app, db
-from sqlalchemy import ForeignKey, Column, String, Text, Integer
-from sqlalchemy.orm import relationship
-from sqlalchemy.exc import OperationalError, IntegrityError
-from sqlalchemy.orm.exc import NoResultFound, MultipleResultsFound
+
+import hashids
 import json
+import re
+import sqlalchemy.types as types
+
+from sqlalchemy                import ForeignKey, Column, String, Text, Integer
+from sqlalchemy                import event
+from sqlalchemy.exc            import OperationalError, IntegrityError
+from sqlalchemy.orm            import Session
+from sqlalchemy.orm            import relationship
+from sqlalchemy.orm.attributes import InstrumentedAttribute
+from sqlalchemy.orm.exc        import NoResultFound, MultipleResultsFound
+from urllib                    import quote
+
+from app        import app, db
+from exceptions import NotFound
+
+
+BAD_URI_PAT  = re.compile("%.{2}|\/|_")
+COLLAPSE_PAT = re.compile("-{2,}")
+
+
+@event.listens_for(Session, 'after_flush_postexec')
+def inject_obfuscated_id_after_flush_postexec(session, flush_context):
+    def inject_obfuscated_id(m):
+        if m.obfuscated_id is None:
+            m.obfuscated_id = m.__hashidgen__.encode(m.id)
+        return m
+    return [inject_obfuscated_id(m) for m in session.identity_map.values()]
+
+
+def with_transaction(session, f):
+    """
+    Execute `f` in a DB transaction.  If `f` completes successfully, the
+    transaction is committed, otherwise an error is raised and the transaction
+    is rolled back.
+
+    `f` must accept a single argument: the database session instance.
+    """
+    try:
+        f(session)
+        session.commit()
+    except Exception, e:
+        session.rollback()
+        raise e
+
+
+def uri_name(name):
+    """
+    Convert the name of a resource (like a project or sample) into a
+    URI-friendly form.  This function has strong opinions about what a "good"
+    URI ID is, and will complain if the ID cannot be rendered in an acceptable
+    form.  In particular, it should not contain any characters that need to be
+    escaped; cf. `urllib.quote()`.
+    """
+    # URI-escape special characters
+    new_name = quote(name.lower().replace(" ", "-"))
+    # Convert escapes into underscores; i.e. foo%20bar -> foo-bar
+    new_name = re.sub(BAD_URI_PAT, '-', new_name)
+    # Collapse multiple consecutive hyphens; i.e. foo---bar -> foo-bar
+    new_name = re.sub(COLLAPSE_PAT, '-', new_name)
+    # And return our pretty new identifier
+    return new_name
 
 
 def dictify(model):
-    """Return a model as a dictionary"""
-    return dict(kv for kv in iter(model.__dict__.items())
-                if not kv[0].startswith('_'))
+    """
+    Return a model as a dictionary. 'Private' attributes are removed and
+    underscores are replaced with more hyphens in attribute names, making for
+    more aesthetically pleasing HTTP data maps.
+    """
+    assert hasattr(model, 'id')
+    assert model.id is not None, 'Model\'s ID may not be None'
+    assert hasattr(model, 'obfuscated_id')
+    assert model.obfuscated_id is not None, 'Model\'s obfuscated ID may not be None'
+
+    def tr(kv):
+        return (kv[0].replace('_', '-'), kv[1])
+    d = dict(tr(kv) for kv in iter(model.__dict__.items())
+             if not kv[0].startswith('_'))
+    if d.has_key('name'):
+        d['id'] = '-'.join([d['obfuscated-id'], uri_name(d['name'])])
+    else:
+        d['id'] = d['obfuscated-id']
+    del d['obfuscated-id']
+    return d
 
 
 def jsonize_models(models):
@@ -17,18 +92,63 @@ def jsonize_models(models):
     return json.dumps([dictify(m) for m in models])
 
 
+def jsonize_model(model):
+    """Return a single model instance as a JSON object."""
+    return json.dumps(dictify(model))
+
+
+class HashIds(hashids.Hashids):
+    """
+    HashID generator for our resources.  Database-assigned IDs are
+    hashed/obfuscated to avoid leaking implementation details and creating
+    unintentional expectations around resource identification.q
+    cf. http://hashids.org
+    """
+    def __init__(self, salt, min_length=5):
+        super(HashIds, self).__init__(
+            salt=';'.join(['sagittarius', salt]),
+            min_length=min_length)
+
+
+class Representable:
+    """
+    A base class for Models that generically generates a String representation
+    of the model and its properties.
+    """
+    def __repr__(self):
+        def repr_attr(k):
+            return '%s=%s' % (k, getattr(self, k))
+        reprified_attrs = [repr_attr(k) for k in iter(sorted(self.__dict__.keys()))
+                           if not k.startswith('_')]
+        if len(reprified_attrs) == 0:
+            attrs_repr = '<no instance attributes>'
+        else:
+            attrs_repr = ', '.join(reprified_attrs)
+        return '<%s: %s>' % (self.__class__.__name__, attrs_repr)
+
+
+class ResourceMetaClass(type(db.Model)):
+    """
+    A metaclass that injects the identifier fields that should be present on
+    all Models.
+    """
+    def __new__(metacls, clsname,  parents, attrs):
+        attrs['id'] = Column(Integer, primary_key=True)
+        attrs['obfuscated_id'] = Column(String(15), unique=True)
+        return super(ResourceMetaClass, metacls).__new__(
+            metacls, clsname, (Representable,) + parents, attrs)
+
+
 class Project(db.Model):
-    __tablename__ = 'projects'
-    id = Column('project_id', Integer, primary_key=True)
+    __metaclass__ = ResourceMetaClass
+    __tablename__ = 'project'
+    __hashidgen__ = HashIds('Project')
+
     name = Column(String(80), unique=True)
     sample_mask = Column(String(64), unique=False)
     # objects forward-related to project
-    samples = relationship('Sample',
-                           backref='project',
-                           lazy='dynamic')
-    # representation of the project
-    def __repr__(self):
-        return '<Project {id:}: {name:}>'.format(id=self.id, name=self.name)
+    samples = relationship(
+        'Sample', backref='project', lazy='dynamic')
 
 
 def get_projects():
@@ -43,79 +163,70 @@ def get_projects():
 
 
 def add_project(name, sample_mask):
-    """Adds a new project."""
-    p = Project(name=name, sample_mask=sample_mask)
+    """
+    Adds a new project.
+    """
     try:
         _ = Project.query.first()
     except OperationalError:
         db.create_all()
-    except IntegrityError:
-        msg = 'A Project named "{}" already exists.'.format(name)
-        raise IntegrityError(msg)
-    db.session.add(p)
-    db.session.commit()
-    return p.id
+    p = Project(name=name, sample_mask=sample_mask)
+    with_transaction(db.session, lambda session: session.add(p))
+    return jsonize_model(Project.query.filter_by(id=p.id).one())
 
 
 class Sample(db.Model):
-    __tablename__ = 'samples'
-    id = Column('sample_id', Integer, primary_key=True, autoincrement=True)
+    __metaclass__ = ResourceMetaClass
+    __tablename__ = 'sample'
+    __hashidgen__ = HashIds('Sample')
+
     name = Column(String(80), unique=True)
     # to what project does this sample belong
-    project_id = Column(Integer, ForeignKey('projects.project_id'))
+    _project_id = Column('project_id', Integer, ForeignKey('project.id'))
     # objects forward-related to sample
-    sample_stages = relationship('SampleStage',
-                                 backref='sample',
-                                 lazy='dynamic')
-    # representation of the sample
-    def __repr__(self):
-        return '<Sample {id:}: {name:}, project {project_id:}>'.format(
-            id=self.id, name=self.name, project_id=self.project_id)
+    sample_stages = relationship(
+        'SampleStage', backref='sample', lazy='dynamic')
+
+    @property
+    def project_id(self):
+        return self.project.obfuscated_id
 
 
-def get_samples(project_id=None):
+def get_samples(project_id):
     """
-    Returns a newline-separated JSON of all samples in a given project.
+    Returns a JSON array of the samples in a given project.
     """
-    try:
-        if project_id is None:
-            samples = Sample.query.all()
-        else:
-            samples = Sample.query.filter_by(project_id=project_id).all()
-    except OperationalError:
-        return ''
-    return '\n'.join([jsonize(s) for s in samples])
+    p = Project.query.filter_by(obfuscated_id=project_id).first()
+    if p is None:
+        msg = 'Project {} was not found.'.format(project_id)
+        raise NotFound('Sample', project_id)
+    return jsonize_models(Sample.query.filter_by(_project_id=p.id).all())
 
 
 def add_sample(project_id, name):
-    """Adds a new sample."""
-    p = Project.query.filter_by(id=project_id).first()
+    """
+    Adds a new sample.
+    """
+    p = Project.query.filter_by(obfuscated_id=project_id).first()
     if p is None:
-        msg = 'Project ID {} was not found.'.format(project_id)
+        msg = 'Project "%s" was not found.' % project_id
         raise NoResultFound(msg)
     s = Sample(name=name, project=p)
-    try:
-        db.session.add(s)
-        db.session.commit()
-    except IntegrityError:
-        msg = 'A Sample named "{}" already exists.'.format(name)
-        raise IntegrityError(msg)
-    return s.id
+    with_transaction(db.session, lambda session: session.add(s))
+    return jsonize_model(Sample.query.filter_by(id=s.id).one())
 
 
 class Method(db.Model):
-    __tablename__ = 'methods'
-    id = Column('method_id', Integer, primary_key=True)
+    __metaclass__ = ResourceMetaClass
+    __tablename__ = 'method'
+    __hashidgen__ = HashIds('Method')
+
     name = Column(String(80), unique=True)
     description = Column(String(80), unique=False)
+
     # objects forward-related to method
-    sample_stages = relationship('SampleStage',
-                                 backref='method',
-                                 lazy='dynamic')
-    # representation of the method
-    def __repr__(self):
-        return '<Method {id:}: {name:}, {descr:}>'.format(
-            id=self.id, name=self.name, descr=self.description)
+    sample_stages = relationship(
+        'SampleStage', backref='method', lazy='dynamic')
 
 
 def get_methods():
@@ -131,35 +242,36 @@ def get_methods():
 
 def add_method(name, description):
     """Adds a new method."""
-    m = Method(name=name, description=description)
     try:
         _ = Method.query.first()
     except OperationalError:
         db.create_all()
-    except IntegrityError:
-        msg = 'A Method named "{}" already exists.'.format(name)
-        raise IntegrityError(msg)
-    db.session.add(m)
-    db.session.commit()
-    return m.id
+    m = Method(name=name, description=description)
+    with_transaction(db.session, lambda session: session.add(m))
+    return jsonize_model(Method.query.filter_by(id=m.id).one())
 
 
 class SampleStage(db.Model):
-    __tablename__ = 'sample_stages'
-    id = Column('sample_stage_id', Integer, primary_key=True)
+    __metaclass__ = ResourceMetaClass
+    __tablename__ = 'sample_stage'
+    __hashidgen__ = HashIds('SampleStage')
+
     annotation = Column(Text, unique=False)
     alt_id = Column(Integer, unique=False)
     # relationships
-    sample_id = Column(Integer, ForeignKey('samples.sample_id'))
-    method_id = Column(Integer, ForeignKey('methods.method_id'))
+    _sample_id = Column('sample_id', Integer, ForeignKey('sample.id'))
+    _method_id = Column('method_id', Integer, ForeignKey('method.id'))
     # objects forward-related to sample stage
-    sample_stage_files = relationship('SampleStageFile',
-                                      backref='sample_stage',
-                                      lazy='dynamic')
-    # representation of the sample stage
-    def __repr__(self):
-        return '<Sample Stage {id:}: {ann:}, alt={alt:}>'.format(
-            id=self.id, ann=self.annotation, alt=self.alt_id)
+    sample_stage_files = relationship(
+        'SampleStageFile', backref='sample_stage', lazy='dynamic')
+
+    @property
+    def sample_id(self):
+        return self.sample.obfuscated_id
+
+    @property
+    def method_id(self):
+        return self.method.obfuscated_id
 
 
 def get_stages(sample_id=None, method_id=None):
@@ -185,19 +297,18 @@ def add_stage(sample_id, method_id, annotation, alt_id=None):
         _ = SampleStage.query.first()
     except OperationalError:
         db.create_all()
-    s = Sample.query.filter_by(id=sample_id).first()
+    s = Sample.query.filter_by(obfuscated_id=sample_id).first()
     if s is None:
         msg = 'Sample ID {} was not found.'.format(sample_id)
         raise NoResultFound(msg)
-    m = Method.query.filter_by(id=method_id).first()
+    m = Method.query.filter_by(obfuscated_id=method_id).first()
     if m is None:
         msg = 'Method ID {} was not found.'.format(method_id)
         raise NoResultFound(msg)
-    ss = SampleStage(annotation=annotation, sample=s, method=m,
-                     alt_id=alt_id)
-    db.session.add(ss)
-    db.session.commit()
-    return ss.id
+    ss = SampleStage(
+        annotation=annotation, sample=s, method=m, alt_id=alt_id)
+    with_transaction(db.session, lambda session: session.add(ss))
+    return jsonize_model(SampleStage.query.filter_by(id=ss.id).one())
 
 
 class FileStatus(object):
@@ -205,14 +316,21 @@ class FileStatus(object):
     incomplete = 1
 
 class SampleStageFile(db.Model):
-    __tablename__ = 'sample_stage_files'
-    id = Column('sample_stage_file_id', Integer, primary_key=True)
+    __metaclass__ = ResourceMetaClass
+    __tablename__ = 'sample_stage_file'
+    __hashidgen__ = HashIds('SampleStageFile')
+
     file_repr = Column(Text, unique=True)
     relative_file_path = Column(Text, unique=True)
     status = Column(Integer, unique=False)
     # relationships
-    sample_stage_id = Column(Integer,
-                             ForeignKey('sample_stages.sample_stage_id'))
+    _sample_stage_id = Column(
+        'sample_stage_id', Integer, ForeignKey('sample_stage.id'))
+
+    @property
+    def sample_stage_id(self):
+        return self.sample_stage.obfuscated_id
+
     # create a sample stage file object
     def __init__(self, sample_stage, status=FileStatus.incomplete):
         kwds = {}
@@ -242,6 +360,7 @@ class SampleStageFile(db.Model):
                '{file:} ({relpath:}), status={stat:}>'.format(
                     id=self.id, file=self.file_repr,
                     relpath=self.relative_file_path, stat=self.status)
+
 
 def create_upload_filename(*args, **kwds):
     counter = 0
@@ -288,6 +407,5 @@ def add_file(sample_stage_id):
         msg = 'SampleStage ID {} was not found.'.format(sample_stage_id)
         raise NoResultFound(msg)
     ssf = SampleStageFile(sample_stage=ss)
-    db.session.add(ssf)
-    db.session.commit()
-    return ssf.id
+    with_transaction(db.session, lambda session: session.add(ssf))
+    return jsonize_model(SampleStageFile.query.filter_by(id=ssf.id))
