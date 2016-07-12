@@ -4,7 +4,7 @@ import json
 import re
 
 from flask                     import abort
-from sqlalchemy                import ForeignKey, Column, String, Text, Integer
+from sqlalchemy                import Boolean, Column, Enum, ForeignKey, PrimaryKeyConstraint, String, Text, Integer
 from sqlalchemy                import event
 from sqlalchemy.exc            import OperationalError, IntegrityError
 from sqlalchemy.orm            import Session
@@ -18,18 +18,33 @@ import http
 from app import app, db
 
 
-
 BAD_URI_PAT  = re.compile("%.{2}|\/|_")
 COLLAPSE_PAT = re.compile("-{2,}")
 
 
 @event.listens_for(Session, 'after_flush_postexec')
 def inject_obfuscated_id_after_flush_postexec(session, flush_context):
+    """
+    Tie into the SQLAlchemy `after_flush_postexec` hook to render for the
+    resource model instance an obfuscated ID that is based on the DB-allocated
+    ID.  The `after_flush` designation refers to the fact that the hook is run
+    after synchronizing the Python model with the (speculative) DB commit.
+    This makes the DB-allocated IDs (like autoincrement fields) available to
+    the Python model for further manipulation before the final commit.
+
+    cf. http://docs.sqlalchemy.org/en/rel_1_0/orm/events.html?highlight=after_flush_postexec
+    """
+    def is_resource(m):
+        return hasattr(m, '__metaclass__') \
+            and (getattr(m, '__metaclass__') == ResourceMetaClass)
+
     def inject_obfuscated_id(m):
-        if m.obfuscated_id is None:
+        if is_resource(m) and (m.obfuscated_id is None):
             m.obfuscated_id = m.__hashidgen__.encode(m.id)
         return m
-    return [inject_obfuscated_id(m) for m in session.identity_map.values()]
+
+    return [inject_obfuscated_id(m)
+            for m in session.identity_map.values()]
 
 
 def with_transaction(session, f):
@@ -41,8 +56,9 @@ def with_transaction(session, f):
     `f` must accept a single argument: the database session instance.
     """
     try:
-        f(session)
+        ret = f(session)
         session.commit()
+        return ret
     except Exception, e:
         session.rollback()
         raise e
@@ -120,6 +136,84 @@ def get_resource(q, abort_not_found=True):
         abort(http.HTTP_404_NOT_FOUND)
     else:
         return r
+
+
+class UserAuthentication(db.Model):
+    __tablename__ = 'user_authn'
+
+    # What agent is responsible for the authentication of this user?
+    authenticator_id = Column(String(256), primary_key=True)
+    # The authenticator-specific ID of the user.
+    authenticator_uid = Column(String(256), primary_key=True)
+
+    # Ref to our own record for the user to whom this auth record applies.
+    user_authz_id = Column(Integer, ForeignKey('user_authz.id'))
+    user_authz = relationship(
+        'UserAuthorization', back_populates='authn_identities')
+
+    PrimaryKeyConstraint('authenticator_id', 'user_id')
+
+
+class UserAuthorization(db.Model):
+    __tablename__ = 'user_authz'
+    __metaclass__ = ResourceMetaClass
+    __hashidgen__ = HashIds('UserAuthorization')
+
+    # TECHDEBT: Forgive me, future self.
+    #
+    # Mike Bayer (zzzeek) has a nice description of an Enum recipe that marries
+    # the advantages of keeping the enum values in the database with those of
+    # having them defined in code:
+    # http://techspot.zzzeek.org/2011/01/14/the-enum-recipe/
+    #
+    # This is how I should be implementing the user status, but in the name of
+    # expedience, I'm going to stop with defining the Enum as Good Enough (tm)
+    # for now.  When time permits we should revisit this.
+    status = Column(Enum('pending-approval', 'active', 'disabled', 'retired'),
+                    nullable=False)
+
+    # Which agenc{y,ies} authenticated this user?
+    authn_identities = relationship(
+        'UserAuthentication', back_populates='user_authz')
+
+    # FIXME: This is an all-or-nothing approach to authorization, which - as a
+    # first pass - is probably good enough for internal ADAPT users.  In
+    # future, however, we're probably going to want a more fine-grained
+    # authorization model; at the very least we may want to constrain the set
+    # of projects available to users, or who is permited to make changes to a
+    # project.
+    authorized = Column(Boolean(create_constraint=True), nullable=False)
+
+
+def add_user(uid, authenticator_id):
+    user_authz = get_user_authorization(
+        uid, authenticator_id, abort_not_found=False)
+
+    # An authentication record for this user already exists.  If the user is
+    # also authorized, then just return the record for that user.
+    if user_authz is not None:
+        return user_authz
+    else:
+        def make_user(session):
+            user_authz = UserAuthorization(
+                status='pending-approval', authorized=False)
+            user_authn = UserAuthentication(
+                authenticator_id=authenticator_id, authenticator_uid=uid)
+            user_authz.authn_identities.append(user_authn)
+            session.add(user_authz)
+            session.add(user_authn)
+            return user_authz
+        return with_transaction(db.session, make_user)
+
+
+def get_user_authorization(uid, authenticator_id, abort_not_found=True):
+    uan_q = UserAuthentication.query.filter_by(
+        authenticator_id=authenticator_id, authenticator_uid=uid)
+    uan = get_resource(uan_q, abort_not_found)
+    if uan is None:
+        return None
+    else:
+        return uan.user_authz
 
 
 class Project(db.Model):

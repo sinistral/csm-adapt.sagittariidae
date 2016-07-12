@@ -97,3 +97,14 @@ def test_add_stage_too_far_ahead(sample_with_stages):
     (stages, token) = models.get_sample_stages(s.obfuscated_id)
     assert 2 == len(stages)
     assert h.encode(2) == token
+
+
+def test_add_user(ws):
+    u = models.add_user('123', 'foo.com')
+    assert u is not None
+    assert 1 == u.id
+    assert 1 == len(u.authn_identities)
+    u = models.get_user_authorization('123', 'foo.com')
+    assert u is not None
+    assert 1 == u.id
+    assert 1 == len(u.authn_identities)
