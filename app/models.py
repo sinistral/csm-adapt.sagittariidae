@@ -45,16 +45,6 @@ def with_transaction(session, f):
         raise e
 
 
-def jsonize_models(models):
-    """Return a list of model instances as a JSON array."""
-    return json.dumps([dictify(m) for m in models])
-
-
-def jsonize_model(model):
-    """Return a single model instance as a JSON object."""
-    return json.dumps(dictify(model))
-
-
 class HashIds(hashids.Hashids):
     """
     HashID generator for our resources.  Database-assigned IDs are
