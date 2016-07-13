@@ -1,11 +1,13 @@
 
-from flask import jsonify, request
-from app import app, db, models
-
 import json
 import re
 
+from flask import abort, jsonify, request
 from urllib import quote
+
+import http
+
+from app import app, db, models
 
 # ------------------------------------------------------------ api routes --- #
 
@@ -51,15 +53,36 @@ def get_project_sample(project, sample):
             {'obfuscated_id': as_id(sample)}))
 
 
-@app.route('/projects/<project>/samples/<sample>/stages', methods=['GET'])
-def get_project_sample_stages(project, sample):
-    return jsonize(
-        models.get_stages(obfuscated_id=as_id(sample)))
+@app.route('/projects/<_>/samples/<sample>/stages', methods=['GET'])
+def get_project_sample_stages(_, sample):
+    (stages, token) = models.get_sample_stages(as_id(sample))
+    return jsonize({'stages': stages, 'token': token})
+
+
+@app.route('/projects/<_>/samples/<sample>/stages/<stage>', methods=['GET'])
+def get_project_sample_stage(_, sample, stage):
+    return jsonize(models.get_sample_stages(as_id(sample), as_id(stage)))
+
+
+@app.route('/projects/<project>/samples/<sample>/stages/<stage>', methods=['PUT'])
+def put_project_sample_stage(project, sample, stage):
+    method = models.get_method(obfuscated_id=as_id(request.json['method']))
+    annotation = request.json['annotation']
+    token = stage
+    rsp = jsonize(
+        models.add_sample_stage(
+            as_id(sample), as_id(method.obfuscated_id), annotation, token))
+    return (rsp, http.HTTP_201_CREATED)
 
 
 @app.route('/methods', methods=['GET'])
 def get_methods():
     return jsonize(models.get_methods())
+
+
+@app.route('/methods/<method>', methods=['GET'])
+def get_method(method):
+    return jsonize(models.get_method(obfuscated_id=as_id(method)))
 
 # --------------------------------------------------------- static routes --- #
 

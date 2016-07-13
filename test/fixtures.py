@@ -46,11 +46,16 @@ def json_encoder(request):
 
 @pytest.fixture(scope='function')
 def sample_with_stages(sample):
-    sample.update({'method' : models.add_method('Smoke test', 'Placeholder'),
-                   'stages' : [models.add_stage(sample_id='OQn6Q',
-                                                method_id='XZOQ0',
-                                                annotation='Annotation 0'),
-                               models.add_stage(sample_id='OQn6Q',
-                                                method_id='XZOQ0',
-                                                annotation='Annotation 1')]})
+    hashid = models._sample_stage_token_hashid()
+    token1 = hashid.encode(0)
+    stage1 = models.add_sample_stage(sample_id=sample['sample'].obfuscated_id,
+                                     method_id=sample['method'].obfuscated_id,
+                                     annotation='Annotation 0',
+                                     token=token1)
+    token2 = hashid.encode(1)
+    stage2 = models.add_sample_stage(sample_id=sample['sample'].obfuscated_id,
+                                     method_id=sample['method'].obfuscated_id,
+                                     annotation='Annotation 1',
+                                     token=token2)
+    sample.update({'stages': [stage1, stage2]})
     return sample
