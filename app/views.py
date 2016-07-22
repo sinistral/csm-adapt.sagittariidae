@@ -11,6 +11,41 @@ from app import app, db, models
 
 # ------------------------------------------------------------ api routes --- #
 
+def authenticated(f):
+    """
+    A decorator for functions that may only be used by an authenticated user.
+    Decorated functions must accept the keyword argument `auth_token`, which
+    will the decorator will inject into the arguments provided by the caller if
+    the token is successfuly verified, e.g.
+
+    ```
+    @authenticated
+    def noop(auth_token=None):
+        pass
+
+    @authenticated
+    def echo(x, auth_token=None):
+        return x
+    ```
+
+    If the token can not be verified, an error will be raised and the decorated
+    function will not be called.
+    """
+    def authenticated_fn(*args, **kwargs):
+        # API calls that should contain an auth token but don't are an error
+        # the part of the client.
+        authd = request.json is not None \
+                and request.json.has_key('auth-token') \
+                and request.json['auth-token'] is not None
+
+        if not authd:
+            abort(http.HTTP_401_UNAUTHORIZED)
+        else:
+            auth_token = request.json['auth-token']
+            return f(*args, **kwargs)
+    return authenticated_fn
+
+
 @app.route('/projects', methods=['GET'])
 def get_projects():
     return jsonize(models.get_projects())

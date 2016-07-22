@@ -1,14 +1,50 @@
 
+import flask
+import json
 import pytest
 
-from sqlalchemy import Column, Integer
+from sqlalchemy          import Column, Integer
+from werkzeug.exceptions import Unauthorized
+
+import app
 
 from app.models import Method, Project, Sample, SampleStage
 from app.models import db
-from app.views  import jsonize
+from app.views  import authenticated, jsonize
 from utils      import decode_json_string
 
 from fixtures   import json_encoder
+
+
+def reqctx(dat):
+    test_app = flask.Flask(__name__)
+    hdr = {'Content-Type': 'application/json'}
+    if dat is None:
+        json_data = json.dumps({})
+    else:
+        json_data = json.dumps(dat)
+    return test_app.test_request_context(
+        '/uri',
+        method='GET',
+        data=json_data,
+        headers=hdr)
+
+
+def test_authenticated_decorator():
+    @authenticated
+    def testfn(auth_token=None):
+        pass
+    with reqctx({'auth-token': 'XXX'}):
+        testfn()
+
+
+def test_authenticated_decorator_no_token():
+    @authenticated
+    def testfn():
+        pass
+    with reqctx(None):
+        with pytest.raises(Unauthorized):
+            testfn()
 
 
 def test_dictify(json_encoder):
