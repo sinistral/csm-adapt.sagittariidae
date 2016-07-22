@@ -185,11 +185,6 @@ class DBModelJSONEncoder(json.JSONEncoder):
         underscores are replaced with more hyphens in attribute names, making
         for more aesthetically pleasing HTTP data maps.
         """
-        assert hasattr(model, 'id')
-        assert model.id is not None, 'Model\'s ID may not be None'
-        assert hasattr(model, 'obfuscated_id')
-        assert model.obfuscated_id is not None, 'Model\'s obfuscated ID may not be None'
-
         def tr(kv):
             return (kv[0].replace('_', '-'), kv[1])
         return dict(tr(kv) for kv in iter(model.__dict__.items())
@@ -227,13 +222,16 @@ class DBModelJSONEncoder(json.JSONEncoder):
         return self.strip_private_fields(self._dictify(m))
 
     def default(self, thing):
-        f = {models.Project     : self._encodeProject,
-             models.Method      : self._encodeMethod,
-             models.Sample      : self._encodeSample,
-             models.SampleStage : self._encodeSampleStage,
-             db.Model           : self._encodeModel
-        }.get(thing.__class__, lambda x: json.JSONEncoder.default(self, x))
-        return f(thing)
+        if isinstance(thing, models.Project):
+            return self._encodeProject(thing)
+        if isinstance(thing, models.Method):
+            return self._encodeMethod(thing)
+        if isinstance(thing, models.Sample):
+            return self._encodeSample(thing)
+        if isinstance(thing, models.SampleStage):
+            return self._encodeSampleStage(thing)
+        if isinstance(thing, db.Model):
+            return self._encodeModel(thing)
 
 
 def jsonize(x):
