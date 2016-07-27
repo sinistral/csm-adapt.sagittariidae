@@ -2,7 +2,7 @@
 import json
 
 from app      import models, http
-from fixtures import sample, sample_with_stages, ws
+from fixtures import flask_app, sample, sample_with_stages, ws
 from utils    import decode_json_string
 
 
@@ -120,3 +120,32 @@ def test_get_method(ws, sample_with_stages):
 def test_method_not_found(ws, sample_with_stages):
     rsp = ws.get('/methods/invalid-method')
     assert 404 == rsp.status_code
+
+
+def test_add_user_unauthenticated(ws):
+    rsp = ws.put('/users/add?uid=123&authenticator=google.com')
+    assert 401 == rsp.status_code
+
+
+def test_add_user_authenticated_not_present(flask_app, ws):
+    flask_app.config['JWT_DECODER']=lambda x: {}
+    rsp = ws.put('/users/add?uid=123&authenticator=google.com',
+                 data=json.dumps({'auth-token': 'f00'}),
+                 content_type='application/json')
+    assert 202 == rsp.status_code
+
+
+def test_get_user_pending(flask_app, ws):
+    flask_app.config['JWT_DECODER']=lambda x: {}
+    rsp = ws.put('/users/add?uid=123&authenticator=google.com',
+                 data=json.dumps({'auth-token': 'f00'}),
+                 content_type='application/json')
+    assert 202 == rsp.status_code
+    u = decode_json_string(ws.get('/users/google.com/123',
+                                  data=json.dumps({'auth-token': 'f00'}),
+                                  content_type='application/json').data)
+    assert 'Lvg7v' == u['id']
+    authn_ident = u['authentication-identities']
+    assert 1 == len(authn_ident)
+    assert 'google.com' == authn_ident[0]['authenticator-id']
+    assert '123' == authn_ident[0]['authenticator-uid']

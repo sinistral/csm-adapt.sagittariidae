@@ -203,7 +203,13 @@ def add_user(uid, authenticator_id):
             session.add(user_authz)
             session.add(user_authn)
             return user_authz
-        return with_transaction(db.session, make_user)
+        uaz = with_transaction(db.session, make_user)
+
+        # Refresh the persisted object so that the relationship-backed
+        # attributes are fully realised.
+        db.session.refresh(uaz)
+
+        return uaz
 
 
 def get_user_authorization(uid, authenticator_id, abort_not_found=True):

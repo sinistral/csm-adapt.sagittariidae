@@ -5,7 +5,7 @@ import werkzeug
 
 import app.models as models
 
-from fixtures import sample, sample_with_stages, ws
+from fixtures import *
 
 
 def test_add_project(ws):

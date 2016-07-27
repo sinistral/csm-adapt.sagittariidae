@@ -42,7 +42,17 @@ def authenticated(f):
             abort(http.HTTP_401_UNAUTHORIZED)
         else:
             auth_token = request.json['auth-token']
+            # We depend on the decoder to raise an error if the token is
+            # invalid.  The operations being performed must validate
+            # independently that the (now authenticated) user is authorized.
+            kwargs['auth_token'] = app.config['JWT_DECODER'](auth_token)
             return f(*args, **kwargs)
+
+    # Flask protects its users from themselves by ensuring that the same
+    # function isn't mapped to multiple route endpoints.  It does this by
+    # function name.  Decorated functions will all look the same to Flask
+    # unless we hack the name.
+    authenticated_fn.__name__ = '_'.join(['authenticated', f.__name__])
     return authenticated_fn
 
 
@@ -66,6 +76,7 @@ def get_project_samples(project):
     #
     # In the absence of the query parameter we simply return the entire
     # collection.
+    #
     # FIXME: This should support pagination!
     sample_name=request.args.get('name')
     if sample_name is not None:
@@ -118,6 +129,34 @@ def get_methods():
 @app.route('/methods/<method>', methods=['GET'])
 def get_method(method):
     return jsonize(models.get_method(obfuscated_id=as_id(method)))
+
+
+@app.route('/users/<authenticator>/<uid>', methods=['GET'])
+@authenticated
+def get_user(uid, authenticator, auth_token=None):
+    return jsonize(
+        models.get_user_authorization(
+            uid, authenticator, abort_not_found=True))
+
+
+@app.route('/users/add', methods=['PUT'])
+@authenticated
+def add_user(auth_token=None):
+    """
+    Add a new user.  The user must have been successfully authenticated by an
+    authentication provider supported by Sagittariidae (e.g. Google); this is
+    indicated by the presence of a valid `auth_token` in the request data.
+
+    If the request is accepted and succesfully processed, a '202' (Accepted)
+    HTTP code is returned.  This indicates that that user is not immediately
+    authorized and operations performed by that user may be rejected as
+    unauthorized.  Clients may determine whether a user is ready for use by
+    polling the user status.
+    """
+    uid = request.args.get('uid')
+    authenticator = request.args.get('authenticator')
+    u = models.add_user(uid, authenticator)
+    return (jsonize(u), http.HTTP_202_ACCEPTED)
 
 # -------------------------------------- static routes and error handlers --- #
 
@@ -191,7 +230,8 @@ class DBModelJSONEncoder(json.JSONEncoder):
                     if (not (kv[0].startswith('_') or (kv[0] in exclude))))
 
     def strip_private_fields(self, d):
-        del d['obfuscated-id']
+        if d.has_key('obfuscated-id'):
+            del d['obfuscated-id']
         return d
 
     def _encodeProject(self, p):
@@ -218,6 +258,15 @@ class DBModelJSONEncoder(json.JSONEncoder):
         d['method'] = self._uri_name(ss.method.obfuscated_id, ss.method.name)
         return self.strip_private_fields(d)
 
+    def _encodeUserAuthentication(self, ua):
+        return self.strip_private_fields(self._dictify(ua, {'user_authz_id'}))
+
+    def _encodeUserAuthorization(self, ua):
+        d = self._dictify(ua, {'authorized'})
+        d['id'] = d['obfuscated-id']
+        d['authentication-identities'] = ua.authn_identities
+        return self.strip_private_fields(d)
+
     def _encodeModel(self, m):
         return self.strip_private_fields(self._dictify(m))
 
@@ -230,6 +279,8 @@ class DBModelJSONEncoder(json.JSONEncoder):
             return self._encodeSample(thing)
         if isinstance(thing, models.SampleStage):
             return self._encodeSampleStage(thing)
+        if isinstance(thing, models.UserAuthorization):
+            return self._encodeUserAuthorization(thing)
         if isinstance(thing, db.Model):
             return self._encodeModel(thing)
 
