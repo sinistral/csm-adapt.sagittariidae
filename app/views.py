@@ -6,6 +6,7 @@ from flask import abort, jsonify, request
 from urllib import quote
 
 import http
+import authz
 
 from app import app, db, models
 
@@ -111,14 +112,16 @@ def get_project_sample_stage(_, sample, stage):
 
 
 @app.route('/projects/<project>/samples/<sample>/stages/<stage>', methods=['PUT'])
-def put_project_sample_stage(project, sample, stage):
-    method = models.get_method(obfuscated_id=as_id(request.json['method']))
-    annotation = request.json['annotation']
-    token = stage
-    rsp = jsonize(
-        models.add_sample_stage(
-            as_id(sample), as_id(method.obfuscated_id), annotation, token))
-    return (rsp, http.HTTP_201_CREATED)
+@authenticated
+def put_project_sample_stage(project, sample, stage, auth_token=None):
+    with authz.user_authorization(auth_token):
+        method = models.get_method(obfuscated_id=as_id(request.json['method']))
+        annotation = request.json['annotation']
+        token = stage
+        rsp = jsonize(
+            models.add_sample_stage(
+                as_id(sample), as_id(method.obfuscated_id), annotation, token))
+        return (rsp, http.HTTP_201_CREATED)
 
 
 @app.route('/methods', methods=['GET'])

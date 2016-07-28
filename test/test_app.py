@@ -2,9 +2,13 @@
 import json
 
 from app      import models, http
-from fixtures import flask_app, sample, sample_with_stages, ws
+from fixtures import *
 from utils    import decode_json_string
 
+
+def putreq(ws, url, data):
+    data.update({'auth-token': 'f00'})
+    return ws.put(url, data=json.dumps(data), content_type='application/json')
 
 def test_no_projects(ws):
     rsp = ws.get('/projects')
@@ -70,12 +74,11 @@ def test_sample_not_found(ws, sample):
     assert http.HTTP_404_NOT_FOUND == rsp.status_code
 
 
-def test_add_sample_stage(ws, sample):
+def test_add_sample_stage(ws, user, sample):
     token = models._sample_stage_token_hashid().encode(0)
-    rsp = ws.put('/projects/PqrX9/samples/OQn6Q/stages/' + token,
-                 data=json.dumps(
-                     dict(method='XZOQ0', annotation='Stage annation')),
-                 content_type='application/json')
+    rsp = putreq(ws,
+                 '/projects/PqrX9/samples/OQn6Q/stages/' + token,
+                 {'method': 'XZOQ0', 'annotation': 'Stage annation'})
     assert http.HTTP_201_CREATED == rsp.status_code
     assert {'id'        : 'Drn1Q-1',
             'sample'    : 'OQn6Q-sample-1',
@@ -83,6 +86,13 @@ def test_add_sample_stage(ws, sample):
             'method'    : 'XZOQ0-x-ray-tomography',
             'annotation': 'Stage annation'} \
             == decode_json_string(rsp.data)
+
+
+def test_add_sample_stage_unauthorized_user(ws, flask_app, user, sample):
+    flask_app.config['JWT_DECODER']=lambda x: {'uid': 'anonymous',
+                                               'authenticator': 'anonymizer'}
+    rsp = putreq(ws, '/projects/PqrX9/samples/OQn6Q/stages/f00',{})
+    assert http.HTTP_403_FORBIDDEN == rsp.status_code
 
 
 def test_get_sample(ws, sample_with_stages):
@@ -128,7 +138,6 @@ def test_add_user_unauthenticated(ws):
 
 
 def test_add_user_authenticated_not_present(flask_app, ws):
-    flask_app.config['JWT_DECODER']=lambda x: {}
     rsp = ws.put('/users/add?uid=123&authenticator=google.com',
                  data=json.dumps({'auth-token': 'f00'}),
                  content_type='application/json')
@@ -136,7 +145,6 @@ def test_add_user_authenticated_not_present(flask_app, ws):
 
 
 def test_get_user_pending(flask_app, ws):
-    flask_app.config['JWT_DECODER']=lambda x: {}
     rsp = ws.put('/users/add?uid=123&authenticator=google.com',
                  data=json.dumps({'auth-token': 'f00'}),
                  content_type='application/json')

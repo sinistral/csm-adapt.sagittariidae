@@ -8,6 +8,9 @@ import app.models as models
 import app.views as views
 
 
+TEST_USER='test-user'
+TEST_AUTHENTICATOR='test-authenticator'
+
 @pytest.fixture(scope='function')
 def flask_app(request):
     fa = app.app.app
@@ -16,6 +19,10 @@ def flask_app(request):
     fd, fn = tempfile.mkstemp()
     fa.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + fn
     fa.config['TESTING'] = True
+
+    token = {'uid':           TEST_USER,
+             'authenticator': TEST_AUTHENTICATOR}
+    fa.config['JWT_DECODER']=lambda x: token
 
     with fa.app_context():
         models.db.create_all()
@@ -32,6 +39,12 @@ def flask_app(request):
 @pytest.fixture(scope='function')
 def ws(flask_app):
     return flask_app.test_client()
+
+
+@pytest.fixture(scope='function')
+def user():
+    uid = models.add_user(TEST_USER, TEST_AUTHENTICATOR).obfuscated_id
+    models._approve_user(uid)
 
 
 @pytest.fixture(scope='function')

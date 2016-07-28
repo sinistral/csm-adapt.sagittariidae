@@ -47,6 +47,21 @@ def inject_obfuscated_id_after_flush_postexec(session, flush_context):
             for m in session.identity_map.values()]
 
 
+class InvalidResourceId(Exception):
+    def __init__(self, id):
+        self.id = id
+    def __str__(self):
+        return str(self.id)
+
+
+def deobfuscate_resource_id(obfuscated_id, resource_class):
+    id = resource_class.__hashidgen__.decode(obfuscated_id)
+    if len(id) == 0:
+        raise InvalidResourceId(obfuscated_id)
+    else:
+        return id[0]
+
+
 def with_transaction(session, f):
     """
     Execute `f` in a DB transaction.  If `f` completes successfully, the
@@ -222,6 +237,23 @@ def get_user_authorization(uid, authenticator_id, abort_not_found=True):
         return uan.user_authz
 
 
+def _approve_user(obfuscated_id):
+    """
+    Mark a user (with 'pending-approval' status) as an active user, and
+    authorize her to use the system.
+    """
+    uaz_q = UserAuthorization.query.filter_by(
+        id=deobfuscate_resource_id(obfuscated_id, UserAuthorization))
+    uaz = get_resource(uaz_q)
+
+    def approve(session):
+        uaz.status = 'active'
+        uaz.authorized = True
+        return uaz
+
+    return with_transaction(db.session, approve)
+
+
 class Project(db.Model):
     __metaclass__ = ResourceMetaClass
     __tablename__ = 'project'
@@ -388,7 +420,8 @@ def get_sample_stages(sample_id):
     """
     Returns stages for the designated sample.
     """
-    s = get_resource(Sample.query.filter_by(obfuscated_id=sample_id))
+    s = get_resource(Sample.query.filter_by(
+        id=deobfuscate_resource_id(sample_id, Sample)))
     # The order of the stages is significant, since they represent a sequence
     # of events for a sample.  Results should naturally be ordered by the
     # primary key, but it doesn't hurt to make sure.
@@ -409,7 +442,8 @@ def get_sample_stage(sample_id, stage_id):
     """
     Returns a particular stage for a particular sample.
     """
-    s = get_resource(Sample.query.filter_by(obfuscated_id=sample_id))
+    s = get_resource(Sample.query.filter_by(
+        id=deobfuscate_resource_id(sample_id, Sample)))
     return get_resource(SampleStage.query.filter_by(_sample_id=s.id))
 
 
@@ -419,8 +453,10 @@ def add_sample_stage(sample_id, method_id, annotation, token, alt_id=None):
     by `get_sample_stages()` in order to make requests idempotent and avoid
     adding spurious entries to the DB because of retries, etc.
     """
-    s = get_resource(Sample.query.filter_by(obfuscated_id=sample_id))
-    m = get_resource(Method.query.filter_by(obfuscated_id=method_id))
+    s = get_resource(Sample.query.filter_by(
+        id=deobfuscate_resource_id(sample_id, Sample)))
+    m = get_resource(Method.query.filter_by(
+        id=deobfuscate_resource_id(method_id, Method)))
     i = _sample_stage_token_hashid().decode(token)[0]
 
     # Make sure that we have a transaction open.  We need to retrieve the list
