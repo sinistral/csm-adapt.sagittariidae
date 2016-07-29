@@ -84,7 +84,7 @@ def get_methods():
 def get_method(method):
     return jsonize(models.get_method(obfuscated_id=as_id(method)))
 
-# --------------------------------------------------------- static routes --- #
+# -------------------------------------- static routes and error handlers --- #
 
 @app.route('/index')
 def index():
@@ -97,6 +97,12 @@ def index():
     with open(ifile) as ifs:
         return ifs.read()
     # return render_template(ifile)
+
+
+@app.errorhandler(Exception)
+def unhandled_exception(e):
+    app.logger.error('Unhandled exception: %s' % e, exc_info=e)
+    raise e
 
 # ------------------------------------------------------ data marshalling --- #
 

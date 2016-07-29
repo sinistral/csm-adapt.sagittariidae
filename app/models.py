@@ -139,12 +139,7 @@ def get_projects():
     Returns a list of dicts, where each contains summary information about a
     project.
     """
-    try:
-        projects = Project.query.all()
-    except Exception, e:
-        log.error('Error retrieving projects', exc_info=e)
-        raise e
-    return projects
+    return Project.query.all()
 
 
 def get_project(abort_not_found=True, **project_filters):
