@@ -396,7 +396,7 @@ class SampleStageFile(db.Model):
                 method=method.name, counter=counter)
         # set the status of the file transfer
         kwds['status'] = status
-        super().__init__(**kwds)
+        super(SampleStageFile, self).__init__(**kwds)
     # representation of sample stage file
     def __repr__(self):
         return '<Sample Stage File {id:}: ' \
