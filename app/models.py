@@ -1,10 +1,11 @@
 
+import enum
 import hashids
 import json
 import re
 
 from flask                     import abort
-from sqlalchemy                import ForeignKey, Column, String, Text, Integer
+from sqlalchemy                import Enum, ForeignKey, Column, String, Text, Integer
 from sqlalchemy                import event
 from sqlalchemy.exc            import OperationalError, IntegrityError
 from sqlalchemy.orm            import Session
@@ -354,9 +355,9 @@ def add_sample_stage(sample_id, method_id, annotation, token, alt_id=None):
         return SampleStage.query.filter_by(id=ss.id).one()
 
 
-class FileStatus(object):
-    complete = 0
-    incomplete = 1
+class FileStatus(enum.Enum):
+    complete = 'complete'
+    incomplete = 'incomplete'
 
 class SampleStageFile(db.Model):
     __metaclass__ = ResourceMetaClass
@@ -365,7 +366,7 @@ class SampleStageFile(db.Model):
 
     file_repr = Column(Text, unique=True)
     relative_file_path = Column(Text, unique=True)
-    status = Column(Integer, unique=False)
+    status = Column(Enum(*FileStatus.__members__.keys()))
     # relationships
     _sample_stage_id = Column(
         'sample_stage_id', Integer, ForeignKey('sample_stage.id'))
