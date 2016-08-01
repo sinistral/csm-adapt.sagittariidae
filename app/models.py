@@ -386,8 +386,8 @@ class SampleStageFile(db.Model):
         project = sample.project
         relpath, counter = create_upload_filename(
             app.config['STORE_PATH'],
-            '{project_id:03d}/{sample_id:04d}'.format(
-                project_id=project.id, sample_id=sample.id),
+            '{project_id:03d}'.format(project_id=project.id),
+            '{sample_id:04d}'.format(sample_id=sample.id),
             '{method_id:03d}'.format(method_id=method.id))
         kwds['relative_file_path'] = relpath
         kwds['file_repr'] = \
