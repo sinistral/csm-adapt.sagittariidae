@@ -3,9 +3,10 @@ import os
 import pytest
 import werkzeug
 
+import app
 import app.models as models
 
-from fixtures import sample, sample_with_stages, ws
+from fixtures import *
 
 
 def test_add_project(ws):
@@ -97,3 +98,19 @@ def test_add_stage_too_far_ahead(sample_with_stages):
     (stages, token) = models.get_sample_stages(s.obfuscated_id)
     assert 2 == len(stages)
     assert h.encode(2) == token
+
+
+def test_create_first_stage_file(storepath, sample_with_stages):
+    stage = sample_with_stages['stages'][0]
+    ssf = models.SampleStageFile(stage)
+    assert '001/0001/001-000' == ssf.relative_file_path
+
+
+def test_create_next_stage_file(storepath, sample_with_stages):
+    stage = sample_with_stages['stages'][0]
+    ssf1 = models.SampleStageFile(stage)
+    fn1 = os.path.join(storepath, ssf1.relative_file_path)
+    os.makedirs(os.path.dirname(fn1))
+    open(fn1, 'a')
+    ssf2 = models.SampleStageFile(stage)
+    assert '001/0001/001-001' == ssf2.relative_file_path
