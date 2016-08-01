@@ -103,7 +103,7 @@ def test_add_stage_too_far_ahead(sample_with_stages):
 def test_create_first_stage_file(storepath, sample_with_stages):
     stage = sample_with_stages['stages'][0]
     ssf = models.SampleStageFile(stage)
-    assert '001/0001/001-000' == ssf.relative_file_path
+    assert '00001/00001/00001-00000' == ssf.relative_file_path
 
 
 def test_create_next_stage_file(storepath, sample_with_stages):
@@ -113,4 +113,4 @@ def test_create_next_stage_file(storepath, sample_with_stages):
     os.makedirs(os.path.dirname(fn1))
     open(fn1, 'a')
     ssf2 = models.SampleStageFile(stage)
-    assert '001/0001/001-001' == ssf2.relative_file_path
+    assert '00001/00001/00001-00001' == ssf2.relative_file_path
