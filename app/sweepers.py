@@ -50,7 +50,7 @@ class SampleStageFileSweeper(Sweeper):
         files = models.get_files(
             sample_stage_id=None,
             status=models.FileStatus.incomplete)
-        logger.info('Found %d incomplete files', len(files))
+        logger.info('Found %d incomplete files: %s', len(files), files)
         for f in files:
             try:
                 self._complete_(f)
