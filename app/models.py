@@ -368,8 +368,6 @@ class SampleStageFile(db.Model):
     __tablename__ = 'sample_stage_file'
     __hashidgen__ = HashIds('SampleStageFile')
 
-    file_repr = Column(Text, unique=True)
-
     relative_source_path = Column(Text, unique=True)
     relative_target_path = Column(Text, unique=True)
     _status = Column('status', Enum(*FileStatus.__members__.keys()))
@@ -412,20 +410,25 @@ class SampleStageFile(db.Model):
 
         self.relative_source_path = relative_upload_name
         self.relative_target_path = relpath
-
-        # ???: Why are we storing this?
-        self.file_repr = \
-            '{project:}/{sample:}/{method:}-{counter:05d}'.format(
-            project=project.name, sample=sample.name,
-            method=method.name, counter=counter)
-
         self.status = status
+
+    def _file_repr_(self):
+        sample  = self.sample_stage.sample
+        method  = self.sample_stage.method
+        project = sample.project
+        return '{project:}/{sample:}/{method:}/{fname:}'.format(
+            project=project.name,
+            sample=sample.name,
+            method=method.name,
+            fname=os.path.basename(self.relative_target_path))
 
     def __repr__(self):
         return '<Sample Stage File {id:}: ' \
                '{file:} ({relpath:}), status={stat:}>'.format(
-                    id=self.id, file=self.file_repr,
-                    relpath=self.relative_target_path, stat=self.status)
+                   id=self.id,
+                   file=self._file_repr_(),
+                   relpath=self.relative_target_path,
+                   stat=self.status)
 
 
 def create_upload_filename(*args, **kwds):
