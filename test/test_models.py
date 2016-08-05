@@ -6,6 +6,7 @@ import werkzeug
 import app
 import app.models as models
 
+from app.file import touch
 from fixtures import *
 
 
@@ -102,15 +103,28 @@ def test_add_stage_too_far_ahead(sample_with_stages):
 
 def test_create_first_stage_file(storepath, sample_with_stages):
     stage = sample_with_stages['stages'][0]
-    ssf = models.SampleStageFile(stage)
-    assert '00001/00001/00001-00000' == ssf.relative_file_path
+    ssf = models.SampleStageFile('source-file', stage)
+    assert 'project-00001/sample-00001/method-00001/source-file-00000' == ssf.relative_target_path
 
 
 def test_create_next_stage_file(storepath, sample_with_stages):
     stage = sample_with_stages['stages'][0]
-    ssf1 = models.SampleStageFile(stage)
-    fn1 = os.path.join(storepath, ssf1.relative_file_path)
-    os.makedirs(os.path.dirname(fn1))
-    open(fn1, 'a')
-    ssf2 = models.SampleStageFile(stage)
-    assert '00001/00001/00001-00001' == ssf2.relative_file_path
+    ssf1 = models.SampleStageFile('source-file', stage)
+    fn1 = os.path.join(storepath, ssf1.relative_target_path)
+    touch(fn1)
+    ssf2 = models.SampleStageFile('source-file', stage)
+    assert 'project-00001/sample-00001/method-00001/source-file-00001' == ssf2.relative_target_path
+
+
+def test_add_file(storepath, sample_with_stages):
+    ssf = models.add_file('source-file', sample_with_stages['stages'][0].obfuscated_id)
+    assert 1 == ssf.id
+    assert 'w4Kbn' == ssf.obfuscated_id
+    assert models.FileStatus.staged == ssf.status
+    assert models.FileStatus.staged.value == ssf._status
+    assert sample_with_stages['stages'][0].id == ssf._sample_stage_id
+
+
+def test_complete_file(sample_with_stages):
+    ssf = models.add_file('source-file', sample_with_stages['stages'][0].obfuscated_id)
+    assert models.FileStatus.staged == ssf.status

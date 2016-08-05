@@ -4,14 +4,14 @@ import pytest
 import shutil
 import tempfile
 
-import app
-import app.models as models
-import app.views as views
+import app         as sagittariidae
+import app.models  as models
+import app.views   as views
 
 
 @pytest.fixture(scope='function')
 def ws(request):
-    flask_app = app.app.app
+    flask_app = sagittariidae.app.app
     # Yuck!  Reeeally have to fix the app name!
 
     fd, fn = tempfile.mkstemp()
@@ -19,7 +19,7 @@ def ws(request):
     flask_app.config['TESTING'] = True
     inst = flask_app.test_client()
     with flask_app.app_context():
-        app.models.db.create_all()
+        models.db.create_all()
         pass
 
     def fin():
@@ -75,12 +75,15 @@ def tmpdir(request):
 
 @pytest.fixture(scope='function')
 def storepath(request, tmpdir):
-    config = app.app.app.config
-    configureddir = config['STORE_PATH']
+    config = sagittariidae.app.app.config
+    configured_store_dir = config['STORE_PATH']
+    configured_upload_dir = config['UPLOAD_PATH']
 
     def teardown():
-        config['STORE_PATH'] = configureddir
+        config['STORE_PATH'] = configured_store_dir
+        config['UPLOAD_PATH'] = configured_upload_dir
     request.addfinalizer(teardown)
 
     config['STORE_PATH'] = tmpdir
+    config['UPLOAD_PATH'] = os.path.join(tmpdir, 'upload')
     return tmpdir

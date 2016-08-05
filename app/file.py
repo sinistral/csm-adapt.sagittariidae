@@ -30,3 +30,7 @@ def iswritable(name):
         # if not, would name create a new file in
         # an accessible directory?
         return iswritable(os.path.split(name)[0])
+
+def touch(name, dirmode=0777):
+    os.makedirs(os.path.dirname(name), dirmode)
+    open(name, 'wa').close()
