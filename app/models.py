@@ -6,7 +6,7 @@ import os
 import re
 
 from flask                     import abort
-from sqlalchemy                import Enum, ForeignKey, Column, String, Text, Integer
+from sqlalchemy                import Enum, ForeignKey, Column, String, TIMESTAMP, Text, Integer
 from sqlalchemy                import event
 from sqlalchemy.exc            import OperationalError, IntegrityError
 from sqlalchemy.ext.hybrid     import hybrid_property
@@ -14,6 +14,7 @@ from sqlalchemy.orm            import Session
 from sqlalchemy.orm            import relationship
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.orm.exc        import NoResultFound, MultipleResultsFound
+from sqlalchemy.sql.expression import func
 from urllib                    import quote
 
 import http
@@ -371,6 +372,13 @@ class SampleStageFile(db.Model):
     relative_source_path = Column(Text, unique=True)
     relative_target_path = Column(Text, unique=True)
     _status = Column('status', Enum(*FileStatus.__members__.keys()))
+    # PORTABILITY WARNING: SQLite renders `now` in UTC, which is what we want.
+    # This behaviour may not be true for all stores and so may need custom type
+    # handling to ensure that timestamps are consistently handled in UTC.
+    modified_ts = Column(
+        TIMESTAMP,
+        server_default=func.now(),
+        onupdate=func.current_timestamp())
 
     # relationships
     _sample_stage_id = Column(
