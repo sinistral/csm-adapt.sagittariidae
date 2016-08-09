@@ -10,7 +10,8 @@ from flask          import abort, jsonify, request
 from werkzeug.utils import secure_filename
 from urllib         import quote
 
-from app import app, db, models
+from app            import app, db, models
+from sampleresolver import SampleResolver
 
 
 PART_EXT = ".part"
@@ -37,22 +38,19 @@ def get_project_samples(project):
     # of the samples for a project (even if the latter is arguably the more
     # RESTful approach).  This enables a URL of the form:
     #
-    #   http://.../projects/qwErt/samples?name=P001-B009-...
+    #   http://.../projects/qwErt/samples?q=P001-B009-...
     #
     # In the absence of the query parameter we simply return the entire
     # collection.
     # FIXME: This should support pagination!
-    sample_name=request.args.get('name')
-    if sample_name is not None:
+    search_terms = request.args.get('q')
+    project_id   = as_id(project)
+    if search_terms is not None:
         return jsonize(
-            models.get_project_sample(
-                {'obfuscated_id': as_id(project)},
-                {'name': sample_name},
-                False))  # Do not signal a 404 if sample could not be found.
+            SampleResolver().resolve(search_terms.split(' '), project_id))
     else:
         return jsonize(
-            models.get_samples(
-                obfuscated_id=as_id(project)))
+            models.get_samples(obfuscated_id=as_id(project_id)))
 
 
 @app.route('/projects/<project>/samples/<sample>', methods=['GET'])
