@@ -95,7 +95,8 @@ def test_get_sample(ws, sample_with_stages):
 
 def test_get_stages(ws, sample_with_stages):
     rsp = decode_json_string(ws.get('/projects/PqrX9/samples/OQn6Q/stages').data)
-    assert {'token'   : 'kyDbw',
+    assert {'sample'  : 'OQn6Q',
+            'token'   : 'kyDbw',
             'stages'  : [{'id'         : 'Drn1Q-1',
                           'method'     : 'XZOQ0-x-ray-tomography',
                           'sample'     : 'OQn6Q-sample-1',
