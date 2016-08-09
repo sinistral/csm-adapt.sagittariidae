@@ -66,6 +66,7 @@ try:
 
     # Lead "middleware" modules.  These may depend on both leaf modules and on
     # `app.app`.
+    import sampleresolver
     import views
 
     # And we're done
