@@ -64,7 +64,9 @@ def get_project_sample(project, sample):
 @app.route('/projects/<_>/samples/<sample>/stages', methods=['GET'])
 def get_project_sample_stages(_, sample):
     (stages, token) = models.get_sample_stages(as_id(sample))
-    return jsonize({'stages': stages, 'token': token})
+    return jsonize({'sample' : sample,
+                    'stages' : stages,
+                    'token'  : token})
 
 
 @app.route('/projects/<_>/samples/<sample>/stages/<stage>', methods=['GET'])
