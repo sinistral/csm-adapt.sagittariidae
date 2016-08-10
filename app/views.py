@@ -273,10 +273,11 @@ class DBModelJSONEncoder(json.JSONEncoder):
         else:
             status = 'processing'
         fname = os.path.basename(ssf.relative_target_path)
-        return {'id'     : ssf.obfuscated_id + '-' + fname,
-                'file'   : fname,
-                'status' : status,
-                'mtime'  : ssf.modified_ts.isoformat()}
+        return {'id'           : ssf.obfuscated_id + '-' + fname,
+                'file'         : fname,
+                'status'       : status,
+                'mtime'        : ssf.modified_ts.isoformat(),
+                'uri' : '/dl/' + ssf.relative_target_path}
 
     def _encodeModel(self, m):
         return self.strip_private_fields(self._dictify(m))
