@@ -4,12 +4,16 @@ import time
 
 from flask            import Flask
 from flask_sqlalchemy import SQLAlchemy
+from werkzeug.wsgi    import SharedDataMiddleware
 
+from config import STORE_PATH
 
 app = Flask(__name__)
 db = SQLAlchemy(app)
 
 app.config.from_object('config')
+
+app.wsgi_app = SharedDataMiddleware(app.wsgi_app, {'/dl': STORE_PATH})
 
 # Please use a sane timezone for log entries so that we don't have to jump
 # through daylight savings hoops.
