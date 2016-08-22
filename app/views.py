@@ -1,9 +1,19 @@
 
+import glob
+import hashlib
 import json
+import math
+import os
 import re
 
-from flask import abort, jsonify, request
-from urllib import quote
+from flask          import abort, jsonify, request
+from werkzeug.utils import secure_filename
+from urllib         import quote
+
+from app import app, db, models
+
+
+PART_EXT = ".part"
 
 import http
 
@@ -83,6 +93,69 @@ def get_methods():
 @app.route('/methods/<method>', methods=['GET'])
 def get_method(method):
     return jsonize(models.get_method(obfuscated_id=as_id(method)))
+
+
+@app.route('/prepare-multipart-upload', methods=['POST'])
+def prepare_file_upload():
+    pass
+
+
+@app.route('/upload-part', methods=['POST'])
+def upload_file():
+    part = request.files['file']
+
+    # part_number = request.form['part-number']
+    part_number = request.form['resumableChunkNumber']
+    # total_number_parts = request.form['total-parts']
+    total_number_parts = request.form['resumableTotalChunks']
+
+    # file_identifier = request.form['upload-id']
+    file_identifier = request.form['resumableIdentifier']
+    part_upload_dir = upload_dir(file_identifier)
+    mkdirp(part_upload_dir)
+
+    # Save the part into a file with a name of the form 00.part.  The number of
+    # leading zeroes depends on the number of parts.
+    fmtstr = "%%0%dd" % len(total_number_parts)
+    part_filename = (fmtstr % int(part_number)) + PART_EXT
+    part.save(os.path.join(part_upload_dir, part_filename))
+
+    return json.dumps({'identifier': file_identifier,
+                       'part': part_number,
+                       'total_parts': total_number_parts})
+
+
+@app.route('/complete-multipart-upload', methods=['POST'])
+def complete_file_upload():
+    request_data    = json.loads(request.data)
+    file_identifier = request_data['upload-id']
+    file_name       = secure_filename(request_data['file-name'])
+    project         = request_data['project']
+    sample          = request_data['sample']
+    sample_stage    = as_id(request_data['sample-stage'])
+
+    # TODO: Client must include a file hash!
+
+    part_upload_dir = upload_dir(file_identifier)
+    reconstituted_file_name = os.path.join(part_upload_dir, file_name)
+    parts = sorted(glob.glob(os.path.join(part_upload_dir, '*.part')))
+
+    app.logger.info('Writing reconsitituted file: %s' % reconstituted_file_name)
+    with open(reconstituted_file_name, 'w') as reconstituted_file:
+        for part_name in parts:
+            with open(part_name, 'rb') as part_file:
+                reconstituted_file.write(part_file.read())
+    checksum = hashfile(reconstituted_file_name, hashlib.sha256())
+    app.logger.info('Reconsituted %s with checksum %s (%s)' % \
+                    (reconstituted_file_name, checksum, 'sha256'))
+
+    # TODO: validate file hash against checksum provided by client.
+
+    return (json.dumps({'identifier'   : file_identifier,
+                        'file-name'    : file_name,
+                        'checksum-type': 'sha-256',
+                        'checksum'     : checksum}),
+            http.HTTP_202_ACCEPTED)
 
 # -------------------------------------- static routes and error handlers --- #
 
@@ -201,3 +274,35 @@ class DBModelJSONEncoder(json.JSONEncoder):
 
 def jsonize(x):
     return json.dumps(x, cls=DBModelJSONEncoder)
+
+# ----------------------------------------------------------- utility fns --- #
+
+def mkdirp(p):
+    if os.path.exists(p) and os.path.isdir(p):
+        return False
+    else:
+        os.makedirs(p)
+        return True
+
+
+def upload_dir(p):
+    if isinstance(p, basestring):
+        add_path = (p,) # Turn the single element into a tuple that can be
+                        # joined into a full path
+    elif isinstance(p, (list, tuple)):
+        add_path = p
+    else:
+        msg = 'I Don\'t know how to create an upload directory path from "%s", %s' \
+              % (p, type(p))
+        raise Exception(msg)
+    full_path = (app.config['UPLOAD_PATH'],) + add_path
+    return os.path.join(*full_path)
+
+
+def hashfile(fn, hasher, blocksize=65536):
+    with open(fn, 'rb') as afile:
+        buf = afile.read(blocksize)
+        while len(buf) > 0:
+            hasher.update(buf)
+            buf = afile.read(blocksize)
+    return hasher.hexdigest()
