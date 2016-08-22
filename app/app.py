@@ -5,41 +5,68 @@ import time
 from flask            import Flask
 from flask_sqlalchemy import SQLAlchemy
 
+
 app = Flask(__name__)
+db = SQLAlchemy(app)
 
 app.config.from_object('config')
+isdevmode = app.config['TESTING'] or app.config['DEBUG']
 
 # Please use a sane timezone for log entries so that we don't have to jump
 # through daylight savings hoops.
 logging.Formatter.converter = time.gmtime
-formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(module)s,l%(lineno)d : %(message)s')
+formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(threadName)s,%(module)s,l%(lineno)d : %(message)s')
 
-logger = app.logger
+# Set up the level at which we want to log
+if isdevmode:
+    loglevel = logging.DEBUG
+else:
+    loglevel = logging.INFO
 
-if app.config['DEBUG'] == True:
-    # Log to the console when in debug/test mode
-    cons_log = logging.StreamHandler()
-    cons_log.setLevel(logging.DEBUG)
-    cons_log.setFormatter(formatter)
-    logger.addHandler(cons_log)
-    # Also log to a local file, rather than to the system log dir
+loggers = {app.logger                      : None,
+           logging.getLogger('werkzeug')   : logging.INFO,
+           logging.getLogger('sqlalchemy') : logging.WARN}
+handlers = []
+
+# Set up the log handlers.
+if isdevmode:
     log_file = 'sagittariidae.log'
+    cons_log = logging.StreamHandler()
+    handlers.append(cons_log)
 else:
     # When in production, log to a file in the system log dir.
     # TODO: Add a `logrotate` cron job to manage the log file.
     log_file = '/var/log/sagittariidae.log'
 
 file_log = logging.FileHandler(log_file)
-file_log.setFormatter(formatter)
-file_log.setLevel(logging.DEBUG)
+handlers.append(file_log)
 
-logger.addHandler(file_log)
-logging.getLogger('werkzeug').addHandler(file_log)
-logging.getLogger('sqlalchemy').addHandler(file_log)
+# Assign handlers to loggers and set them all at the appropriate level
+for handler in handlers:
+    handler.setLevel(loglevel)
+    handler.setFormatter(formatter)
 
-logger.info('Sagittariidae startup')
+    for logger, defined_level in loggers.iteritems():
+        if defined_level is None:
+            logger.setLevel(loglevel)
+        else:
+            logger.setLevel(defined_level)
+        logger.addHandler(handler)
 
-# Init the DB and load our models so that they can be processed by SQLAlchemy.
-db = SQLAlchemy(app)
+try:
+    logger.info('Sagittariidae is starting ...')
 
-import models, views
+    # Load "leaf" modules.  These may depend only on `app.app` which has now
+    # been initialised
+    import models
+
+    # Lead "middleware" modules.  These may depend on both leaf modules and on
+    # `app.app`.
+    import views
+
+    # And we're done
+    logger.info('Sagittariidae is ready to serve.')
+except Exception, e:
+    logger.error('Startup error', exc_info=e)
+    import sys
+    sys.exit(1)
