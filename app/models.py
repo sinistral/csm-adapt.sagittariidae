@@ -386,17 +386,17 @@ class SampleStageFile(db.Model):
         project = sample.project
         relpath, counter = create_upload_filename(
             app.config['STORE_PATH'],
-            '{project_id:03d}/{sample_id:04d}'.format(
-                project_id=project.id, sample_id=sample.id),
-            '{method_id:03d}'.format(method_id=method.id))
+            '{project_id:05d}'.format(project_id=project.id),
+            '{sample_id:05d}'.format(sample_id=sample.id),
+            '{method_id:05d}'.format(method_id=method.id))
         kwds['relative_file_path'] = relpath
         kwds['file_repr'] = \
-            '{project:}/{sample:}/{method:}-{counter:03d}'.format(
+            '{project:}/{sample:}/{method:}-{counter:05d}'.format(
                 project=project.name, sample=sample.name,
                 method=method.name, counter=counter)
         # set the status of the file transfer
         kwds['status'] = status
-        super().__init__(**kwds)
+        super(SampleStageFile, self).__init__(**kwds)
     # representation of sample stage file
     def __repr__(self):
         return '<Sample Stage File {id:}: ' \
@@ -411,7 +411,7 @@ def create_upload_filename(*args, **kwds):
     relpath = '/'.join(s.rstrip('/') for s in args[1:])
     while True:
         try:
-            suffix = '{relpath:}-{counter:03d}'.format(
+            suffix = '{relpath:}-{counter:05d}'.format(
                 relpath=relpath, counter=counter)
             trial = '{prefix:}/{suffix:}'.format(
                 prefix=prefix, suffix=suffix)

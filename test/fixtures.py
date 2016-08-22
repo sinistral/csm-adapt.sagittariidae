@@ -1,6 +1,7 @@
 
 import os
 import pytest
+import shutil
 import tempfile
 
 import app
@@ -59,3 +60,27 @@ def sample_with_stages(sample):
                                      token=token2)
     sample.update({'stages': [stage1, stage2]})
     return sample
+
+
+@pytest.fixture(scope='function')
+def tmpdir(request):
+    dirname = tempfile.mkdtemp()
+
+    def teardown():
+        shutil.rmtree(dirname)
+    request.addfinalizer(teardown)
+
+    return dirname
+
+
+@pytest.fixture(scope='function')
+def storepath(request, tmpdir):
+    config = app.app.app.config
+    configureddir = config['STORE_PATH']
+
+    def teardown():
+        config['STORE_PATH'] = configureddir
+    request.addfinalizer(teardown)
+
+    config['STORE_PATH'] = tmpdir
+    return tmpdir
