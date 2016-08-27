@@ -104,7 +104,19 @@ def test_add_stage_too_far_ahead(sample_with_stages):
 def test_create_first_stage_file(storepath, sample_with_stages):
     stage = sample_with_stages['stages'][0]
     ssf = models.SampleStageFile('source-file', stage)
-    assert 'project-00001/sample-00001/method-00001/source-file-00000' == ssf.relative_target_path
+    assert '/'.join(['project-00001',
+                     'sample-00001',
+                     'stage-00001.method-00001',
+                     'source-file-00000']) == ssf.relative_target_path
+
+
+def test_create_stage_file_for_second_stage(storepath, sample_with_stages):
+    stage = sample_with_stages['stages'][1]
+    ssf = models.SampleStageFile('source-file', stage)
+    assert '/'.join(['project-00001',
+                     'sample-00001',
+                     'stage-00002.method-00001',
+                     'source-file-00000']) == ssf.relative_target_path
 
 
 def test_create_next_stage_file(storepath, sample_with_stages):
@@ -113,7 +125,10 @@ def test_create_next_stage_file(storepath, sample_with_stages):
     fn1 = os.path.join(storepath, ssf1.relative_target_path)
     touch(fn1)
     ssf2 = models.SampleStageFile('source-file', stage)
-    assert 'project-00001/sample-00001/method-00001/source-file-00001' == ssf2.relative_target_path
+    assert '/'.join(['project-00001',
+                     'sample-00001',
+                     'stage-00001.method-00001',
+                     'source-file-00001']) == ssf2.relative_target_path
 
 
 def test_add_file(storepath, sample_with_stages):

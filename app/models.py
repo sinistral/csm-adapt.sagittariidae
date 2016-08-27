@@ -405,7 +405,8 @@ class SampleStageFile(db.Model):
             app.config['STORE_PATH'],
             'project-{project_id:05d}'.format(project_id=project.id),
             'sample-{sample_id:05d}'.format(sample_id=sample.id),
-            'method-{method_id:05d}'.format(method_id=method.id),
+            'stage-{stage_id:05d}.method-{method_id:05d}'.format(
+                stage_id=sample_stage.id, method_id=method.id),
             os.path.basename(relative_upload_name))
 
         self.relative_source_path = relative_upload_name
@@ -413,13 +414,13 @@ class SampleStageFile(db.Model):
         self.status = status
 
     def _file_repr_(self):
+        stageid = self.sample_stage.id
         sample  = self.sample_stage.sample
-        method  = self.sample_stage.method
         project = sample.project
-        return '{project:}/{sample:}/{method:}/{fname:}'.format(
+        return '{project:}/{sample:}/{stage:}/{fname:}'.format(
+            stage=stageid,
             project=project.name,
             sample=sample.name,
-            method=method.name,
             fname=os.path.basename(self.relative_target_path))
 
     def __repr__(self):
