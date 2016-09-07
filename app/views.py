@@ -1,4 +1,5 @@
 
+import StringIO
 import glob
 import hashlib
 import json
@@ -10,14 +11,15 @@ from flask          import abort, jsonify, request
 from werkzeug.utils import secure_filename
 from urllib         import quote
 
-from app import app, db, models
-
-
-PART_EXT = ".part"
-
+import checksum
+import file
 import http
 
 from app import app, db, models
+
+
+PART_EXT = "part"
+CHECKSUM_EXT = "checksum"
 
 # ------------------------------------------------------------ api routes --- #
 
@@ -125,12 +127,14 @@ def upload_file():
     # Save the part into a file with a name of the form 00.part.  The number of
     # leading zeroes depends on the number of parts.
     fmtstr = "%%0%dd" % len(total_number_parts)
-    part_filename = (fmtstr % int(part_number)) + PART_EXT
-    part.save(os.path.join(part_upload_dir, part_filename))
+    part_filename = '.'.join([(fmtstr % int(part_number)), PART_EXT])
+    part_filepath = os.path.join(part_upload_dir, part_filename)
+    part.save(part_filepath)
 
-    return json.dumps({'identifier': file_identifier,
-                       'part': part_number,
-                       'total_parts': total_number_parts})
+    return json.dumps(
+        {'identifier': file_identifier,
+         'part': part_number,
+         'total_parts': total_number_parts})
 
 
 @app.route('/complete-multipart-upload', methods=['POST'])
@@ -142,30 +146,43 @@ def complete_file_upload():
     sample          = request_data['sample']
     sample_stage    = as_id(request_data['sample-stage'])
 
-    # TODO: Client must include a file hash!
+    req_checksum_value  = request_data['checksum-value']
+    req_checksum_method = request_data['checksum-method']
 
     part_upload_dir = upload_dir(file_identifier)
     reconstituted_file_name = os.path.join(part_upload_dir, file_name)
     parts = sorted(glob.glob(os.path.join(part_upload_dir, '*.part')))
 
-    app.logger.info('Writing reconsitituted file: %s' % reconstituted_file_name)
-    with open(reconstituted_file_name, 'w') as reconstituted_file:
+    part_digester = checksum.get_digester(req_checksum_method)
+    with open(reconstituted_file_name, 'w') as target:
+        def consume_part(data):
+            target.write(data)
+            part_digester.update(data)
         for part_name in parts:
-            with open(part_name, 'rb') as part_file:
-                reconstituted_file.write(part_file.read())
-    checksum = hashfile(reconstituted_file_name, hashlib.sha256())
-    app.logger.info('Reconsituted %s with checksum %s (%s)' % \
-                    (reconstituted_file_name, checksum, 'sha256'))
+            file.FileProcessor(part_name, consume_part).process()
+    computed_checksum_value = part_digester.hexdigest()
+    if computed_checksum_value != req_checksum_value:
+        raise checksum.ChecksumMismatch(
+            reconstituted_file_name,
+            req_checksum_method,
+            req_checksum_value,
+            computed_checksum_value)
 
-    # TODO: validate file hash against checksum provided by client.
-    models.add_file(os.path.relpath(reconstituted_file_name,
-                                    app.config['UPLOAD_PATH']),
-                    sample_stage)
+    with open('.'.join([reconstituted_file_name, CHECKSUM_EXT]), 'w') as cf:
+        json.dump({'method': req_checksum_method,
+                   'value' : req_checksum_value},
+                  cf)
 
-    return (json.dumps({'identifier'   : file_identifier,
-                        'file-name'    : file_name,
-                        'checksum-type': 'sha-256',
-                        'checksum'     : checksum}),
+    logmsg = 'Successfully reconsitituted file: %s (%s=%s)' \
+             % (reconstituted_file_name, req_checksum_method, req_checksum_value)
+    app.logger.info(logmsg)
+    models.add_file(
+        os.path.relpath(
+            reconstituted_file_name, app.config['UPLOAD_PATH']),
+        sample_stage)
+
+    return (json.dumps({'identifier' : file_identifier,
+                        'file-name'  : file_name}),
             http.HTTP_202_ACCEPTED)
 
 # -------------------------------------- static routes and error handlers --- #
@@ -180,11 +197,18 @@ def index():
         return msg
     with open(ifile) as ifs:
         return ifs.read()
-    # return render_template(ifile)
+
+
+@app.errorhandler(checksum.ChecksumError)
+def handle_unsupported_checksum_method(e):
+    app.logger.error('Checksum error: %s' % e, exc_info=e)
+    return (json.dumps({'status_code': e.status_code,
+                        'message'    : e.message}),
+            e.status_code)
 
 
 @app.errorhandler(Exception)
-def unhandled_exception(e):
+def handle_unhandled_exception(e):
     app.logger.error('Unhandled exception: %s' % e, exc_info=e)
     raise e
 
@@ -330,4 +354,9 @@ def hashfile(fn, hasher, blocksize=65536):
         while len(buf) > 0:
             hasher.update(buf)
             buf = afile.read(blocksize)
+    return hasher.hexdigest()
+
+
+def hashstring(s, hasher):
+    hasher.update(s)
     return hasher.hexdigest()

@@ -34,3 +34,18 @@ def iswritable(name):
 def touch(name, dirmode=0777):
     os.makedirs(os.path.dirname(name), dirmode)
     open(name, 'wa').close()
+
+class FileProcessor(object):
+    DEFAULT_READ_BLOCKSIZE = 65536
+
+    def __init__(self, fpath, fn, read_blocksize=DEFAULT_READ_BLOCKSIZE):
+        self.fpath = fpath
+        self.fn = fn
+        self.blocksize = read_blocksize
+
+    def process(self):
+        with open(self.fpath, 'r') as f:
+            buf = f.read(self.blocksize)
+            while len(buf) > 0:
+                self.fn(buf)
+                buf = f.read(self.blocksize)
