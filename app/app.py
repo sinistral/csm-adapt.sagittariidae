@@ -6,7 +6,7 @@ from flask            import Flask
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.wsgi    import SharedDataMiddleware
 
-from config import STORE_PATH
+from config import STATIC_ROOT, STORE_PATH
 
 app = Flask(__name__)
 db = SQLAlchemy(app)
@@ -14,7 +14,10 @@ db = SQLAlchemy(app)
 app.config.from_object('config')
 isdevmode = app.config['TESTING'] or app.config['DEBUG']
 
-app.wsgi_app = SharedDataMiddleware(app.wsgi_app, {'/dl': STORE_PATH})
+app.wsgi_app = SharedDataMiddleware(
+    app.wsgi_app,
+    {'/'   : STATIC_ROOT,
+     '/dl' : STORE_PATH})
 
 # Please use a sane timezone for log entries so that we don't have to jump
 # through daylight savings hoops.

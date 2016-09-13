@@ -7,7 +7,7 @@ import math
 import os
 import re
 
-from flask          import abort, jsonify, request
+from flask          import abort, jsonify, redirect, request
 from werkzeug.utils import secure_filename
 from urllib         import quote
 
@@ -23,6 +23,11 @@ PART_EXT = "part"
 CHECKSUM_EXT = "checksum"
 
 # ------------------------------------------------------------ api routes --- #
+
+@app.route('/')
+def index():
+    return redirect('/index.html', http.HTTP_302_FOUND)
+
 
 @app.route('/projects', methods=['GET'])
 def get_projects():
@@ -183,19 +188,7 @@ def complete_file_upload():
                         'file-name'  : file_name}),
             http.HTTP_202_ACCEPTED)
 
-# -------------------------------------- static routes and error handlers --- #
-
-@app.route('/index')
-def index():
-    ifile = 'layout/index.html'
-    try:
-        open(ifile).close()
-    except IOError:
-        msg = '{} not found'.format(ifile)
-        return msg
-    with open(ifile) as ifs:
-        return ifs.read()
-
+# -------------------------------------------------------- error handlers --- #
 
 @app.errorhandler(checksum.ChecksumError)
 def handle_unsupported_checksum_method(e):
