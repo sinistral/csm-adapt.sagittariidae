@@ -1,12 +1,15 @@
 
+import enum
 import hashids
 import json
+import os
 import re
 
 from flask                     import abort
-from sqlalchemy                import ForeignKey, Column, String, Text, Integer
+from sqlalchemy                import Enum, ForeignKey, Column, String, Text, Integer
 from sqlalchemy                import event
 from sqlalchemy.exc            import OperationalError, IntegrityError
+from sqlalchemy.ext.hybrid     import hybrid_property
 from sqlalchemy.orm            import Session
 from sqlalchemy.orm            import relationship
 from sqlalchemy.orm.attributes import InstrumentedAttribute
@@ -16,7 +19,6 @@ from urllib                    import quote
 import http
 
 from app import app, db
-
 
 
 BAD_URI_PAT  = re.compile("%.{2}|\/|_")
@@ -354,9 +356,12 @@ def add_sample_stage(sample_id, method_id, annotation, token, alt_id=None):
         return SampleStage.query.filter_by(id=ss.id).one()
 
 
-class FileStatus(object):
-    complete = 0
-    incomplete = 1
+class FileStatus(enum.Enum):
+    staged   = 'staged'   # Upload processing complete; ready to be moved into
+                          # place.
+    complete = 'complete' # In correct location, ready to be used/downloaded,
+                          # etc.
+
 
 class SampleStageFile(db.Model):
     __metaclass__ = ResourceMetaClass
@@ -364,8 +369,11 @@ class SampleStageFile(db.Model):
     __hashidgen__ = HashIds('SampleStageFile')
 
     file_repr = Column(Text, unique=True)
-    relative_file_path = Column(Text, unique=True)
-    status = Column(Integer, unique=False)
+
+    relative_source_path = Column(Text, unique=True)
+    relative_target_path = Column(Text, unique=True)
+    _status = Column('status', Enum(*FileStatus.__members__.keys()))
+
     # relationships
     _sample_stage_id = Column(
         'sample_stage_id', Integer, ForeignKey('sample_stage.id'))
@@ -374,35 +382,50 @@ class SampleStageFile(db.Model):
     def sample_stage_id(self):
         return self.sample_stage.obfuscated_id
 
+    @hybrid_property
+    def status(self):
+        return FileStatus(self._status)
+
+    @status.setter
+    def status(self, s):
+        self._status = s.value
+
+    @status.expression
+    def status(cls):
+        return cls._status
+
     # create a sample stage file object
-    def __init__(self, sample_stage, status=FileStatus.incomplete):
-        kwds = {}
-        # set the sample stage
-        kwds['sample_stage'] = sample_stage
-        # construct the filename based on project, sample, and method
-        # TODO: There is no file extension...
-        method = sample_stage.method
-        sample = sample_stage.sample
+    def __init__(self, relative_upload_name, sample_stage, status=FileStatus.staged):
+
+        self.sample_stage = sample_stage
+
+        # construct the file path based on project, sample, and method
+        method  = sample_stage.method
+        sample  = sample_stage.sample
         project = sample.project
         relpath, counter = create_upload_filename(
             app.config['STORE_PATH'],
-            '{project_id:05d}'.format(project_id=project.id),
-            '{sample_id:05d}'.format(sample_id=sample.id),
-            '{method_id:05d}'.format(method_id=method.id))
-        kwds['relative_file_path'] = relpath
-        kwds['file_repr'] = \
+            'project-{project_id:05d}'.format(project_id=project.id),
+            'sample-{sample_id:05d}'.format(sample_id=sample.id),
+            'method-{method_id:05d}'.format(method_id=method.id),
+            os.path.basename(relative_upload_name))
+
+        self.relative_source_path = relative_upload_name
+        self.relative_target_path = relpath
+
+        # ???: Why are we storing this?
+        self.file_repr = \
             '{project:}/{sample:}/{method:}-{counter:05d}'.format(
-                project=project.name, sample=sample.name,
-                method=method.name, counter=counter)
-        # set the status of the file transfer
-        kwds['status'] = status
-        super(SampleStageFile, self).__init__(**kwds)
-    # representation of sample stage file
+            project=project.name, sample=sample.name,
+            method=method.name, counter=counter)
+
+        self.status = status
+
     def __repr__(self):
         return '<Sample Stage File {id:}: ' \
                '{file:} ({relpath:}), status={stat:}>'.format(
                     id=self.id, file=self.file_repr,
-                    relpath=self.relative_file_path, stat=self.status)
+                    relpath=self.relative_target_path, stat=self.status)
 
 
 def create_upload_filename(*args, **kwds):
@@ -423,33 +446,36 @@ def create_upload_filename(*args, **kwds):
             return (suffix, counter)
 
 
-def get_files(sample_stage_id=None):
+def get_files(sample_stage_id=None, status=FileStatus.complete):
     """
     Returns a list of dicts where each represents a file that belongs to a
     sample stage.
     """
-    query = SampleStageFile.query
+    stage_file_q = SampleStageFile.query
+    filters = {}
     if sample_stage_id is not None:
-        query = query.filter_by(sample_stage_id=sample_stage_id)
-    try:
-        files = query.all()
-    except OperationalError:
-        return ''
-    return files
+        sample_stage = get_resource(SampleStage.query.filter_by(obfuscated_id=sample_stage_id))
+        filters['_sample_stage_id'] = sample_stage.id
+    if status is not None:
+        filters['status'] = status.value
+    return stage_file_q.filter_by(**filters).all()
 
 
-def add_file(sample_stage_id):
+def add_file(source_fname, sample_stage_id):
     """
     Adds a new file to the sample stage.
     """
-    try:
-        _ = SampleStageFile.query.first()
-    except OperationalError:
-        db.create_all()
-    ss = SampleStage.query.filter_by(id=sample_stage_id).first()
-    if ss is None:
-        msg = 'SampleStage ID {} was not found.'.format(sample_stage_id)
-        raise NoResultFound(msg)
-    ssf = SampleStageFile(sample_stage=ss)
+    ssq = SampleStage.query.filter_by(obfuscated_id=sample_stage_id)
+    ss  = get_resource(ssq)
+
+    # Note that we intentionally add the file as incomplete.  We leave the
+    # completion of this process to a sweeper.
+    ssf = SampleStageFile(source_fname, ss, status=FileStatus.staged)
     with_transaction(db.session, lambda session: session.add(ssf))
-    return SampleStageFile.query.filter_by(id=ssf.id)
+
+    return get_resource(SampleStageFile.query.filter_by(id=ssf.id))
+
+
+def complete_file(stage_file):
+    stage_file.status = FileStatus.complete
+    return with_transaction(db.session, lambda session: session.add(stage_file))
