@@ -411,10 +411,10 @@ class SampleStageFile(db.Model):
         project = sample.project
         relpath, counter = create_upload_filename(
             app.config['STORE_PATH'],
-            'project-{project_id:05d}'.format(project_id=project.id),
-            'sample-{sample_id:05d}'.format(sample_id=sample.id),
-            'stage-{stage_id:05d}.method-{method_id:05d}'.format(
-                stage_id=sample_stage.id, method_id=method.id),
+            'project-{project_id}'.format(project_id=project.obfuscated_id),
+            'sample-{sample_id}'.format(sample_id=sample.obfuscated_id),
+            'stage-{stage_id}.method-{method_id}'.format(
+                stage_id=sample_stage.obfuscated_id, method_id=method.obfuscated_id),
             os.path.basename(relative_upload_name))
 
         self.relative_source_path = relative_upload_name
