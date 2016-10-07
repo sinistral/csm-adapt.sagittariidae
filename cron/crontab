@@ -1,1 +1,1 @@
-*   *   *   *   *   ${HOME}/sagittariidae-ws.git/cron/sweep
+*   *   *   *   *   /usr/bin/flock -xn /var/lock/sagittariidae/cron.lock ${HOME}/sagittariidae-ws.git/cron/sweep
