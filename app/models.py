@@ -191,6 +191,12 @@ class Sample(db.Model):
         return self.project.obfuscated_id
 
 
+def get_sample(sample_filters, abort_not_found=True):
+    return get_resource(
+        Sample.query.filter_by(**sample_filters),
+        abort_not_found=abort_not_found)
+
+
 def get_samples(**project_filters):
     """
     Returns a list of dicts where each represents summary data of a sample.
@@ -206,9 +212,11 @@ def get_project_sample(project_filters, sample_filters, abort_not_found=True):
     # isn't something that clients should assume as guaranteed behaviour.
     # Samples are only valid in the context of a project, and the API should
     # reflect that, even if we model it differently.
-    p = get_project(**project_filters)
+    p = get_project(abort_not_found=abort_not_found, **project_filters)
     sample_filters['_project_id'] = p.id
-    return get_resource(Sample.query.filter_by(**sample_filters))
+    return get_resource(
+        Sample.query.filter_by(**sample_filters),
+        abort_not_found=abort_not_found)
 
 
 def add_sample(project_id, name):
