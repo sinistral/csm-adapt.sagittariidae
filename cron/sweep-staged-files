@@ -3,4 +3,4 @@
 export SERVICEDIR=${HOME}/sagittariidae-ws.git
 export PYTHONPATH=${SERVICEDIR}
 pushd ${SERVICEDIR}
-python app/sweepers.py SampleStageFileSweeper
+python app/sweepers.py StagedFileSweeper

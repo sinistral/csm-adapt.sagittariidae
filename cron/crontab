@@ -1,1 +1,2 @@
-*   *   *   *   *   /usr/bin/flock -xn /var/lock/sagittariidae/cron.lock ${HOME}/sagittariidae-ws.git/cron/sweep
+*   *   *   *   *   /usr/bin/flock -xn /var/lock/sagittariidae/sweep-staged-files.lock ${HOME}/sagittariidae-ws.git/cron/sweep-staged-files
+*   *   *   *   *   /usr/bin/flock -xn /var/lock/sagittariidae/sweep-completed-file-dirs.lock ${HOME}/sagittariidae-ws.git/cron/sweep-completed-file-dirs

@@ -283,7 +283,7 @@ class DBModelJSONEncoder(json.JSONEncoder):
         return self.strip_private_fields(d)
 
     def _encodeSampleStageFile(self, ssf):
-        if ssf.status == models.FileStatus.complete:
+        if ssf.status == models.FileStatus.archived:
             status = 'ready'
         else:
             status = 'processing'

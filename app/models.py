@@ -358,10 +358,16 @@ def add_sample_stage(sample_id, method_id, annotation, token, alt_id=None):
 
 
 class FileStatus(enum.Enum):
+    prepared = 'prepared' # An upload directory and ID has been allocated for
+                          # the file
     staged   = 'staged'   # Upload processing complete; ready to be moved into
                           # place.
-    complete = 'complete' # In correct location, ready to be used/downloaded,
-                          # etc.
+    archived = 'archived' # In correct location, ready to be used/downloaded,
+                          # etc.  Upload directory can be cleaned.
+    cleaned  = 'cleaned'  # All temporary resources (such as the upload
+                          # directory) associated with upload have been
+                          # removed.
+    complete = 'complete' # No further action is needed for the file.
 
 
 class SampleStageFile(db.Model):
@@ -401,7 +407,7 @@ class SampleStageFile(db.Model):
         return cls._status
 
     # create a sample stage file object
-    def __init__(self, relative_upload_name, sample_stage, status=FileStatus.staged):
+    def __init__(self, relative_upload_name, sample_stage, status=FileStatus.prepared):
 
         self.sample_stage = sample_stage
 
@@ -438,6 +444,16 @@ class SampleStageFile(db.Model):
                    file=self._file_repr_(),
                    relpath=self.relative_target_path,
                    stat=self.status)
+
+    def mark_archived(self):
+        self.status = FileStatus.archived
+        return with_transaction(db.session, lambda session: session.add(self))
+
+    def mark_cleaned(self):
+        # Today, cleaning is the last step in the proces, so we jump straight
+        # to `complete`.
+        self.status = FileStatus.complete
+        return with_transaction(db.session, lambda session: session.add(self))
 
 
 def create_upload_filename(*args, **kwds):
@@ -486,8 +502,3 @@ def add_file(source_fname, sample_stage_id):
     with_transaction(db.session, lambda session: session.add(ssf))
 
     return get_resource(SampleStageFile.query.filter_by(id=ssf.id))
-
-
-def complete_file(stage_file):
-    stage_file.status = FileStatus.complete
-    return with_transaction(db.session, lambda session: session.add(stage_file))
