@@ -4,6 +4,7 @@ import hashids
 import json
 import os
 import re
+import string
 
 from flask                     import abort
 from sqlalchemy                import Enum, ForeignKey, Column, String, TIMESTAMP, Text, Integer
@@ -415,12 +416,12 @@ class SampleStageFile(db.Model):
         method  = sample_stage.method
         sample  = sample_stage.sample
         project = sample.project
-        relpath, counter = create_upload_filename(
+        relpath, counter = create_archive_filename(
             app.config['STORE_PATH'],
-            'project-{project_id}'.format(project_id=project.obfuscated_id),
-            'sample-{sample_id}'.format(sample_id=sample.obfuscated_id),
-            'stage-{stage_id}.method-{method_id}'.format(
-                stage_id=sample_stage.obfuscated_id, method_id=method.obfuscated_id),
+            ['project-{project_id}'.format(project_id=project.obfuscated_id),
+             'sample-{sample_id}'.format(sample_id=sample.obfuscated_id),
+             'stage-{stage_id}.method-{method_id}'.format(
+                 stage_id=sample_stage.obfuscated_id, method_id=method.obfuscated_id)],
             os.path.basename(relative_upload_name))
 
         self.relative_source_path = relative_upload_name
@@ -455,26 +456,41 @@ class SampleStageFile(db.Model):
         self.status = FileStatus.complete
         return with_transaction(db.session, lambda session: session.add(self))
 
+def inject_filename_counter(fname, counterval, maxextlen=6):
+    """
+    This function injects this counter value into the filename while attempting
+    to preserve its extension (as broken a mechanism as that is for managing
+    file types).  Extensions are assumed to start with a period and be no
+    longer than 6 characters (a somewhat arbitrarily selected value).
+    """
+    cvstr = '%05d' % counterval
+    parts = fname.split(".")
+    if (len(parts) == 1) or (len(parts[-1]) > maxextlen):
+        return '%s-%s' % (fname, cvstr)
+    else:
+        return '%s-%s.%s' % ('.'.join(parts[:-1]), cvstr, parts[-1])
 
-def create_upload_filename(*args, **kwds):
+
+def create_archive_filename(root, pathels, fname):
+    """
+    To maintain the immutability of the archive fileset, we don't allow
+    datafiles to be overwritten.  We assume that if a file is uploaded with the
+    same name as one already present, that it is a new version of that file.
+    This function attempts to generate a unique, versioned, name for the file.
+    """
     counter = 0
-    prefix = args[0].rstrip('/')
-    relpath = '/'.join(s.rstrip('/') for s in args[1:])
+    partialpath = os.path.join(*pathels)
     while True:
-        try:
-            suffix = '{relpath:}-{counter:05d}'.format(
-                relpath=relpath, counter=counter)
-            trial = '{prefix:}/{suffix:}'.format(
-                prefix=prefix, suffix=suffix)
-            open(trial).close() # attempt to open the file
-            # file opened and was closed successfully, i.e. file exists
+        basename = inject_filename_counter(fname, counter)
+        relpath = os.path.join(partialpath, basename)
+        if os.path.exists(os.path.join(root, relpath)):
             counter += 1
-        except IOError:
-            # file failed to open, i.e. does not exist
-            return (suffix, counter)
+        else:
+            return (relpath, counter)
 
 
 def get_files(sample_stage_id=None, status=FileStatus.complete):
+
     """
     Returns a list of dicts where each represents a file that belongs to a
     sample stage.

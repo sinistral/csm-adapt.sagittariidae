@@ -101,6 +101,17 @@ def test_add_stage_too_far_ahead(sample_with_stages):
     assert h.encode(2) == token
 
 
+def test_inject_filename_counter():
+    assert 'fname-00003' == \
+        models.inject_filename_counter('fname', 3)
+    assert 'weird.filename-00003' == \
+        models.inject_filename_counter('weird.filename', 3)
+    assert 'filename-00003.ext' == \
+        models.inject_filename_counter('filename.ext', 3)
+    assert 'this.is.a.file.of.type-00003.txt' == \
+        models.inject_filename_counter('this.is.a.file.of.type.txt', 3)
+
+
 def test_create_first_stage_file(storepath, sample_with_stages):
     stage = sample_with_stages['stages'][0]
     ssf = models.SampleStageFile('source-file', stage)
