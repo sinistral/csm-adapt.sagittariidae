@@ -6,7 +6,7 @@ import os
 import re
 
 from flask                     import abort
-from sqlalchemy                import Enum, ForeignKey, Column, String, Text, Integer
+from sqlalchemy                import Enum, ForeignKey, Column, String, TIMESTAMP, Text, Integer
 from sqlalchemy                import event
 from sqlalchemy.exc            import OperationalError, IntegrityError
 from sqlalchemy.ext.hybrid     import hybrid_property
@@ -14,6 +14,7 @@ from sqlalchemy.orm            import Session
 from sqlalchemy.orm            import relationship
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.orm.exc        import NoResultFound, MultipleResultsFound
+from sqlalchemy.sql.expression import func
 from urllib                    import quote
 
 import http
@@ -368,11 +369,16 @@ class SampleStageFile(db.Model):
     __tablename__ = 'sample_stage_file'
     __hashidgen__ = HashIds('SampleStageFile')
 
-    file_repr = Column(Text, unique=True)
-
     relative_source_path = Column(Text, unique=True)
     relative_target_path = Column(Text, unique=True)
     _status = Column('status', Enum(*FileStatus.__members__.keys()))
+    # PORTABILITY WARNING: SQLite renders `now` in UTC, which is what we want.
+    # This behaviour may not be true for all stores and so may need custom type
+    # handling to ensure that timestamps are consistently handled in UTC.
+    modified_ts = Column(
+        TIMESTAMP,
+        server_default=func.now(),
+        onupdate=func.current_timestamp())
 
     # relationships
     _sample_stage_id = Column(
@@ -407,25 +413,31 @@ class SampleStageFile(db.Model):
             app.config['STORE_PATH'],
             'project-{project_id:05d}'.format(project_id=project.id),
             'sample-{sample_id:05d}'.format(sample_id=sample.id),
-            'method-{method_id:05d}'.format(method_id=method.id),
+            'stage-{stage_id:05d}.method-{method_id:05d}'.format(
+                stage_id=sample_stage.id, method_id=method.id),
             os.path.basename(relative_upload_name))
 
         self.relative_source_path = relative_upload_name
         self.relative_target_path = relpath
-
-        # ???: Why are we storing this?
-        self.file_repr = \
-            '{project:}/{sample:}/{method:}-{counter:05d}'.format(
-            project=project.name, sample=sample.name,
-            method=method.name, counter=counter)
-
         self.status = status
+
+    def _file_repr_(self):
+        stageid = self.sample_stage.id
+        sample  = self.sample_stage.sample
+        project = sample.project
+        return '{project:}/{sample:}/{stage:}/{fname:}'.format(
+            stage=stageid,
+            project=project.name,
+            sample=sample.name,
+            fname=os.path.basename(self.relative_target_path))
 
     def __repr__(self):
         return '<Sample Stage File {id:}: ' \
                '{file:} ({relpath:}), status={stat:}>'.format(
-                    id=self.id, file=self.file_repr,
-                    relpath=self.relative_target_path, stat=self.status)
+                   id=self.id,
+                   file=self._file_repr_(),
+                   relpath=self.relative_target_path,
+                   stat=self.status)
 
 
 def create_upload_filename(*args, **kwds):

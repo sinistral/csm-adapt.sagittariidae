@@ -66,7 +66,9 @@ def get_project_sample(project, sample):
 @app.route('/projects/<_>/samples/<sample>/stages', methods=['GET'])
 def get_project_sample_stages(_, sample):
     (stages, token) = models.get_sample_stages(as_id(sample))
-    return jsonize({'stages': stages, 'token': token})
+    return jsonize({'sample' : sample,
+                    'stages' : stages,
+                    'token'  : token})
 
 
 @app.route('/projects/<_>/samples/<sample>/stages/<stage>', methods=['GET'])
@@ -83,6 +85,12 @@ def put_project_sample_stage(project, sample, stage):
         models.add_sample_stage(
             as_id(sample), as_id(method.obfuscated_id), annotation, token))
     return (rsp, http.HTTP_201_CREATED)
+
+
+@app.route('/projects/<project>/samples/<sample>/stages/<stage>/files', methods=['GET'])
+def get_sample_stage_files(project, sample, stage):
+    return jsonize({'stage-id' : stage,
+                    'files'    : models.get_files(sample_stage_id=as_id(stage), status=None)})
 
 
 @app.route('/methods', methods=['GET'])
@@ -150,6 +158,9 @@ def complete_file_upload():
                     (reconstituted_file_name, checksum, 'sha256'))
 
     # TODO: validate file hash against checksum provided by client.
+    models.add_file(os.path.relpath(reconstituted_file_name,
+                                    app.config['UPLOAD_PATH']),
+                    sample_stage)
 
     return (json.dumps({'identifier'   : file_identifier,
                         'file-name'    : file_name,
@@ -256,6 +267,18 @@ class DBModelJSONEncoder(json.JSONEncoder):
         d['method'] = self._uri_name(ss.method.obfuscated_id, ss.method.name)
         return self.strip_private_fields(d)
 
+    def _encodeSampleStageFile(self, ssf):
+        if ssf.status == models.FileStatus.complete:
+            status = 'ready'
+        else:
+            status = 'processing'
+        fname = os.path.basename(ssf.relative_target_path)
+        return {'id'           : ssf.obfuscated_id + '-' + fname,
+                'file'         : fname,
+                'status'       : status,
+                'mtime'        : ssf.modified_ts.isoformat(),
+                'uri' : '/dl/' + ssf.relative_target_path}
+
     def _encodeModel(self, m):
         return self.strip_private_fields(self._dictify(m))
 
@@ -268,6 +291,8 @@ class DBModelJSONEncoder(json.JSONEncoder):
             return self._encodeSample(thing)
         if isinstance(thing, models.SampleStage):
             return self._encodeSampleStage(thing)
+        if isinstance(thing, models.SampleStageFile):
+            return self._encodeSampleStageFile(thing)
         if isinstance(thing, db.Model):
             return self._encodeModel(thing)
 
