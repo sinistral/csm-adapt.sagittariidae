@@ -472,8 +472,10 @@ def inject_filename_counter(fname, counterval, maxextlen=6):
     longer than 6 characters (a somewhat arbitrarily selected value).
     """
     cvstr = '%05d' % counterval
-    parts = fname.split(".")
-    if (len(parts) == 1) or (len(parts[-1]) > maxextlen):
+    parts = fname.split('.')
+    def isext(part):
+        return (len(part) <= maxextlen) or (part.startswith('container-'))
+    if (len(parts) == 1) or (not isext(parts[-1])):
         return '%s-%s' % (fname, cvstr)
     else:
         return '%s-%s.%s' % ('.'.join(parts[:-1]), cvstr, parts[-1])
