@@ -37,9 +37,14 @@ class ArchivedFileDirSweeper(Sweeper):
         config   = sagittariidae.app.config
         src_path = os.path.join(config['UPLOAD_PATH'], ssf.relative_source_path)
         src_dir  = os.path.dirname(src_path)
-        assert (not os.path.isfile(src_path)), "File marked as archived, but not moved out of upload dir: %s" % ssf
-        logger.info('Removing upload directory: %s' % src_dir)
-        shutil.rmtree(src_dir)
+        if os.path.exists(src_dir):
+            logger.info('Removing upload directory: %s' % src_dir)
+            shutil.rmtree(src_dir)
+        else:
+            logger.warning('Upload directory doesn\'t exist: %s' % src_dir)
+        # FIXIT: Handle the OperationalError that may result if the database is
+        # locked.  It's not a critical failure, but spurious ERROR messages in
+        # the log is never nice.
         ssf.mark_cleaned()
 
     def run(self):
@@ -65,8 +70,8 @@ class StagedFileSweeper(Sweeper):
         tgt_dir  = os.path.dirname(tgt_path)
         if not os.path.isdir(tgt_dir):
             os.makedirs(tgt_dir)
-        shutil.move(src_path, tgt_path)
-        logger.info('Moved file: %s -> %s', src_path, tgt_path)
+        shutil.copy(src_path, tgt_path)
+        logger.info('Copied file: %s -> %s', src_path, tgt_path)
         ssf.mark_archived()
 
     def run(self):
