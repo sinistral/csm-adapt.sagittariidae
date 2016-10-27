@@ -180,8 +180,10 @@ class Sample(db.Model):
     __hashidgen__ = HashIds('Sample')
 
     name = Column(String(80), unique=True)
+    _created_ts = Column("created_ts", TIMESTAMP, server_default=func.now())
     # to what project does this sample belong
     _project_id = Column('project_id', Integer, ForeignKey('project.id'))
+
     # objects forward-related to sample
     sample_stages = relationship(
         'SampleStage', backref='sample', lazy='dynamic')
@@ -274,6 +276,7 @@ class SampleStage(db.Model):
     __tablename__ = 'sample_stage'
     __hashidgen__ = HashIds('SampleStage')
 
+    _created_ts = Column("created_ts", TIMESTAMP, server_default=func.now())
     annotation = Column(Text, unique=False)
     alt_id = Column(Integer, unique=False)
     # relationships
@@ -390,6 +393,7 @@ class SampleStageFile(db.Model):
     # PORTABILITY WARNING: SQLite renders `now` in UTC, which is what we want.
     # This behaviour may not be true for all stores and so may need custom type
     # handling to ensure that timestamps are consistently handled in UTC.
+    _created_ts = Column('created_ts', TIMESTAMP, server_default=func.now())
     modified_ts = Column(
         TIMESTAMP,
         server_default=func.now(),
