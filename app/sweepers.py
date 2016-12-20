@@ -31,7 +31,37 @@ class Sweeper(object):
             logger.error('Unhandled exception in sweeper %s', self, exc_info=e)
 
 
-class SampleStageFileSweeper(Sweeper):
+class ArchivedFileDirSweeper(Sweeper):
+
+    def _clean_(self, ssf, logger):
+        config   = sagittariidae.app.config
+        src_path = os.path.join(config['UPLOAD_PATH'], ssf.relative_source_path)
+        src_dir  = os.path.dirname(src_path)
+        if os.path.exists(src_dir):
+            logger.info('Removing upload directory: %s' % src_dir)
+            shutil.rmtree(src_dir)
+        else:
+            logger.warning('Upload directory doesn\'t exist: %s' % src_dir)
+        # FIXIT: Handle the OperationalError that may result if the database is
+        # locked.  It's not a critical failure, but spurious ERROR messages in
+        # the log is never nice.
+        ssf.mark_cleaned()
+
+    def run(self):
+        logger = sagittariidae.app.logger
+
+        files = models.get_files(
+            sample_stage_id=None,
+            status=models.FileStatus.archived)
+        logger.info('Found upload director{y,ies} for %d files(s) that are ready to be cleaned: %s', len(files), files)
+        for f in files:
+            try:
+                self._clean_(f, logger)
+            except Exception, e:
+                logger.error('Error cleaning upload directory for file %s', f, exc_info=e)
+
+
+class StagedFileSweeper(Sweeper):
 
     def _complete_(self, ssf):
         config   = sagittariidae.app.config
@@ -40,9 +70,9 @@ class SampleStageFileSweeper(Sweeper):
         tgt_dir  = os.path.dirname(tgt_path)
         if not os.path.isdir(tgt_dir):
             os.makedirs(tgt_dir)
-        shutil.move(src_path, tgt_path)
-        logger.info('Moved file: %s -> %s', src_path, tgt_path)
-        models.complete_file(ssf)
+        shutil.copy(src_path, tgt_path)
+        logger.info('Copied file: %s -> %s', src_path, tgt_path)
+        ssf.mark_archived()
 
     def run(self):
         logger = sagittariidae.app.logger

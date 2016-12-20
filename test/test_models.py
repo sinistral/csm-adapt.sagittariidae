@@ -101,21 +101,34 @@ def test_add_stage_too_far_ahead(sample_with_stages):
     assert h.encode(2) == token
 
 
+def test_inject_filename_counter():
+    assert 'fname-00003' == \
+        models.inject_filename_counter('fname', 3)
+    assert 'weird.filename-00003' == \
+        models.inject_filename_counter('weird.filename', 3)
+    assert 'filename-00003.ext' == \
+        models.inject_filename_counter('filename.ext', 3)
+    assert 'this.is.a.file.of.type-00003.txt' == \
+        models.inject_filename_counter('this.is.a.file.of.type.txt', 3)
+    assert 'samplename-00003.container-contentlabel' == \
+        models.inject_filename_counter('samplename.container-contentlabel', 3)
+
+
 def test_create_first_stage_file(storepath, sample_with_stages):
     stage = sample_with_stages['stages'][0]
     ssf = models.SampleStageFile('source-file', stage)
-    assert '/'.join(['project-00001',
-                     'sample-00001',
-                     'stage-00001.method-00001',
+    assert '/'.join(['project-PqrX9',
+                     'sample-OQn6Q',
+                     'stage-Drn1Q.method-XZOQ0',
                      'source-file-00000']) == ssf.relative_target_path
 
 
 def test_create_stage_file_for_second_stage(storepath, sample_with_stages):
     stage = sample_with_stages['stages'][1]
     ssf = models.SampleStageFile('source-file', stage)
-    assert '/'.join(['project-00001',
-                     'sample-00001',
-                     'stage-00002.method-00001',
+    assert '/'.join(['project-PqrX9',
+                     'sample-OQn6Q',
+                     'stage-bQ8bm.method-XZOQ0',
                      'source-file-00000']) == ssf.relative_target_path
 
 
@@ -125,9 +138,9 @@ def test_create_next_stage_file(storepath, sample_with_stages):
     fn1 = os.path.join(storepath, ssf1.relative_target_path)
     touch(fn1)
     ssf2 = models.SampleStageFile('source-file', stage)
-    assert '/'.join(['project-00001',
-                     'sample-00001',
-                     'stage-00001.method-00001',
+    assert '/'.join(['project-PqrX9',
+                     'sample-OQn6Q',
+                     'stage-Drn1Q.method-XZOQ0',
                      'source-file-00001']) == ssf2.relative_target_path
 
 

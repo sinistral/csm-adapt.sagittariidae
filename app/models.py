@@ -4,6 +4,7 @@ import hashids
 import json
 import os
 import re
+import string
 
 from flask                     import abort
 from sqlalchemy                import Enum, ForeignKey, Column, String, TIMESTAMP, Text, Integer
@@ -179,8 +180,10 @@ class Sample(db.Model):
     __hashidgen__ = HashIds('Sample')
 
     name = Column(String(80), unique=True)
+    _created_ts = Column("created_ts", TIMESTAMP, server_default=func.now())
     # to what project does this sample belong
     _project_id = Column('project_id', Integer, ForeignKey('project.id'))
+
     # objects forward-related to sample
     sample_stages = relationship(
         'SampleStage', backref='sample', lazy='dynamic')
@@ -188,6 +191,12 @@ class Sample(db.Model):
     @property
     def project_id(self):
         return self.project.obfuscated_id
+
+
+def get_sample(sample_filters, abort_not_found=True):
+    return get_resource(
+        Sample.query.filter_by(**sample_filters),
+        abort_not_found=abort_not_found)
 
 
 def get_samples(**project_filters):
@@ -205,9 +214,11 @@ def get_project_sample(project_filters, sample_filters, abort_not_found=True):
     # isn't something that clients should assume as guaranteed behaviour.
     # Samples are only valid in the context of a project, and the API should
     # reflect that, even if we model it differently.
-    p = get_project(**project_filters)
+    p = get_project(abort_not_found=abort_not_found, **project_filters)
     sample_filters['_project_id'] = p.id
-    return get_resource(Sample.query.filter_by(**sample_filters))
+    return get_resource(
+        Sample.query.filter_by(**sample_filters),
+        abort_not_found=abort_not_found)
 
 
 def add_sample(project_id, name):
@@ -265,6 +276,7 @@ class SampleStage(db.Model):
     __tablename__ = 'sample_stage'
     __hashidgen__ = HashIds('SampleStage')
 
+    _created_ts = Column("created_ts", TIMESTAMP, server_default=func.now())
     annotation = Column(Text, unique=False)
     alt_id = Column(Integer, unique=False)
     # relationships
@@ -358,10 +370,16 @@ def add_sample_stage(sample_id, method_id, annotation, token, alt_id=None):
 
 
 class FileStatus(enum.Enum):
+    prepared = 'prepared' # An upload directory and ID has been allocated for
+                          # the file
     staged   = 'staged'   # Upload processing complete; ready to be moved into
                           # place.
-    complete = 'complete' # In correct location, ready to be used/downloaded,
-                          # etc.
+    archived = 'archived' # In correct location, ready to be used/downloaded,
+                          # etc.  Upload directory can be cleaned.
+    cleaned  = 'cleaned'  # All temporary resources (such as the upload
+                          # directory) associated with upload have been
+                          # removed.
+    complete = 'complete' # No further action is needed for the file.
 
 
 class SampleStageFile(db.Model):
@@ -375,6 +393,7 @@ class SampleStageFile(db.Model):
     # PORTABILITY WARNING: SQLite renders `now` in UTC, which is what we want.
     # This behaviour may not be true for all stores and so may need custom type
     # handling to ensure that timestamps are consistently handled in UTC.
+    _created_ts = Column('created_ts', TIMESTAMP, server_default=func.now())
     modified_ts = Column(
         TIMESTAMP,
         server_default=func.now(),
@@ -401,7 +420,7 @@ class SampleStageFile(db.Model):
         return cls._status
 
     # create a sample stage file object
-    def __init__(self, relative_upload_name, sample_stage, status=FileStatus.staged):
+    def __init__(self, relative_upload_name, sample_stage, status=FileStatus.prepared):
 
         self.sample_stage = sample_stage
 
@@ -409,12 +428,12 @@ class SampleStageFile(db.Model):
         method  = sample_stage.method
         sample  = sample_stage.sample
         project = sample.project
-        relpath, counter = create_upload_filename(
+        relpath, counter = create_archive_filename(
             app.config['STORE_PATH'],
-            'project-{project_id:05d}'.format(project_id=project.id),
-            'sample-{sample_id:05d}'.format(sample_id=sample.id),
-            'stage-{stage_id:05d}.method-{method_id:05d}'.format(
-                stage_id=sample_stage.id, method_id=method.id),
+            ['project-{project_id}'.format(project_id=project.obfuscated_id),
+             'sample-{sample_id}'.format(sample_id=sample.obfuscated_id),
+             'stage-{stage_id}.method-{method_id}'.format(
+                 stage_id=sample_stage.obfuscated_id, method_id=method.obfuscated_id)],
             os.path.basename(relative_upload_name))
 
         self.relative_source_path = relative_upload_name
@@ -439,26 +458,53 @@ class SampleStageFile(db.Model):
                    relpath=self.relative_target_path,
                    stat=self.status)
 
+    def mark_archived(self):
+        self.status = FileStatus.archived
+        return with_transaction(db.session, lambda session: session.add(self))
 
-def create_upload_filename(*args, **kwds):
+    def mark_cleaned(self):
+        # Today, cleaning is the last step in the proces, so we jump straight
+        # to `complete`.
+        self.status = FileStatus.complete
+        return with_transaction(db.session, lambda session: session.add(self))
+
+def inject_filename_counter(fname, counterval, maxextlen=6):
+    """
+    This function injects this counter value into the filename while attempting
+    to preserve its extension (as broken a mechanism as that is for managing
+    file types).  Extensions are assumed to start with a period and be no
+    longer than 6 characters (a somewhat arbitrarily selected value).
+    """
+    cvstr = '%05d' % counterval
+    parts = fname.split('.')
+    def isext(part):
+        return (len(part) <= maxextlen) or (part.startswith('container-'))
+    if (len(parts) == 1) or (not isext(parts[-1])):
+        return '%s-%s' % (fname, cvstr)
+    else:
+        return '%s-%s.%s' % ('.'.join(parts[:-1]), cvstr, parts[-1])
+
+
+def create_archive_filename(root, pathels, fname):
+    """
+    To maintain the immutability of the archive fileset, we don't allow
+    datafiles to be overwritten.  We assume that if a file is uploaded with the
+    same name as one already present, that it is a new version of that file.
+    This function attempts to generate a unique, versioned, name for the file.
+    """
     counter = 0
-    prefix = args[0].rstrip('/')
-    relpath = '/'.join(s.rstrip('/') for s in args[1:])
+    partialpath = os.path.join(*pathels)
     while True:
-        try:
-            suffix = '{relpath:}-{counter:05d}'.format(
-                relpath=relpath, counter=counter)
-            trial = '{prefix:}/{suffix:}'.format(
-                prefix=prefix, suffix=suffix)
-            open(trial).close() # attempt to open the file
-            # file opened and was closed successfully, i.e. file exists
+        basename = inject_filename_counter(fname, counter)
+        relpath = os.path.join(partialpath, basename)
+        if os.path.exists(os.path.join(root, relpath)):
             counter += 1
-        except IOError:
-            # file failed to open, i.e. does not exist
-            return (suffix, counter)
+        else:
+            return (relpath, counter)
 
 
 def get_files(sample_stage_id=None, status=FileStatus.complete):
+
     """
     Returns a list of dicts where each represents a file that belongs to a
     sample stage.
@@ -486,8 +532,3 @@ def add_file(source_fname, sample_stage_id):
     with_transaction(db.session, lambda session: session.add(ssf))
 
     return get_resource(SampleStageFile.query.filter_by(id=ssf.id))
-
-
-def complete_file(stage_file):
-    stage_file.status = FileStatus.complete
-    return with_transaction(db.session, lambda session: session.add(stage_file))

@@ -7,7 +7,7 @@ import math
 import os
 import re
 
-from flask          import abort, jsonify, request
+from flask          import abort, jsonify, redirect, request
 from werkzeug.utils import secure_filename
 from urllib         import quote
 
@@ -15,13 +15,19 @@ import checksum
 import file
 import http
 
-from app import app, db, models
+from app            import app, db, models
+from sampleresolver import SampleResolver
 
 
 PART_EXT = "part"
 CHECKSUM_EXT = "checksum"
 
 # ------------------------------------------------------------ api routes --- #
+
+@app.route('/')
+def index():
+    return redirect('/index.html', http.HTTP_302_FOUND)
+
 
 @app.route('/projects', methods=['GET'])
 def get_projects():
@@ -39,22 +45,19 @@ def get_project_samples(project):
     # of the samples for a project (even if the latter is arguably the more
     # RESTful approach).  This enables a URL of the form:
     #
-    #   http://.../projects/qwErt/samples?name=P001-B009-...
+    #   http://.../projects/qwErt/samples?q=P001-B009-...
     #
     # In the absence of the query parameter we simply return the entire
     # collection.
     # FIXME: This should support pagination!
-    sample_name=request.args.get('name')
-    if sample_name is not None:
+    search_terms = request.args.get('q')
+    project_id   = as_id(project)
+    if search_terms is not None:
         return jsonize(
-            models.get_project_sample(
-                {'obfuscated_id': as_id(project)},
-                {'name': sample_name},
-                False))  # Do not signal a 404 if sample could not be found.
+            SampleResolver().resolve(search_terms.split(' '), project_id))
     else:
         return jsonize(
-            models.get_samples(
-                obfuscated_id=as_id(project)))
+            models.get_samples(obfuscated_id=as_id(project_id)))
 
 
 @app.route('/projects/<project>/samples/<sample>', methods=['GET'])
@@ -185,19 +188,7 @@ def complete_file_upload():
                         'file-name'  : file_name}),
             http.HTTP_202_ACCEPTED)
 
-# -------------------------------------- static routes and error handlers --- #
-
-@app.route('/index')
-def index():
-    ifile = 'layout/index.html'
-    try:
-        open(ifile).close()
-    except IOError:
-        msg = '{} not found'.format(ifile)
-        return msg
-    with open(ifile) as ifs:
-        return ifs.read()
-
+# -------------------------------------------------------- error handlers --- #
 
 @app.errorhandler(checksum.ChecksumError)
 def handle_unsupported_checksum_method(e):
@@ -292,7 +283,11 @@ class DBModelJSONEncoder(json.JSONEncoder):
         return self.strip_private_fields(d)
 
     def _encodeSampleStageFile(self, ssf):
-        if ssf.status == models.FileStatus.complete:
+        def isready(ssf):
+            return ssf.status in [models.FileStatus.archived,
+                                  models.FileStatus.cleaned,
+                                  models.FileStatus.complete]
+        if isready(ssf):
             status = 'ready'
         else:
             status = 'processing'
